@@ -1,18 +1,19 @@
 """
 Insider Buy Tracker  v5
-Data source: SEC EDGAR RSS feed + direct Form 4 XML
-  Primary:  https://www.sec.gov/cgi-bin/browse-edgar?type=4&action=getcurrent&output=atom
-  Enrichment: yfinance (price / sector / exchange)
-All endpoints are .gov — no firewall issues on Streamlit Cloud.
+Stesso metodo del OS Biotech Monitor v30.4:
+  • http://openinsider.com/screener  (HTTP porta 80, non HTTPS 443)
+  • User-Agent Chrome reale
+  • BeautifulSoup per il parsing della tabella
+  • Retry 3x con backoff
 """
 
 import streamlit as st
 import requests
 import re
 import json
+import time
 from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from xml.etree import ElementTree as ET
+from bs4 import BeautifulSoup
 
 # ── PAGE CONFIG ───────────────────────────────────────────────
 st.set_page_config(
@@ -77,9 +78,16 @@ div[data-testid="stSelectbox"] label,div[data-testid="stSlider"] label{font-size
 # ── CONSTANTS ─────────────────────────────────────────────────
 CACHE_FILE = "last_known_data.json"
 
-# SEC requires descriptive User-Agent
-SEC_UA = "InsiderBuyTracker/5.0 (educational; contact@example.com)"
-SEC_H  = {"User-Agent": SEC_UA, "Accept": "application/json, text/xml, */*"}
+# Stesso User-Agent del biotech monitor v30.4 — simula Chrome reale
+HEADERS_BROWSER = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 
 CLEVEL_KW = [
     "chief executive","ceo","chief financial","cfo",
@@ -117,8 +125,12 @@ def is_clevel(title: str) -> bool:
         ])
     return True
 
+def _oi_parse_num(s: str) -> str:
+    """Rimuove $, virgole, spazi — come nel biotech monitor."""
+    return re.sub(r"[$,\s+]", "", s.strip())
+
 def clean_num(s) -> float:
-    try:   return float(re.sub(r"[^\d.]","",str(s)) or "0")
+    try:   return float(re.sub(r"[^\d.]", "", str(s)) or "0")
     except: return 0.0
 
 def fmt_usd(v: float) -> str:
@@ -131,156 +143,199 @@ def sector_style(sector: str) -> tuple:
         if k.lower() in sector.lower(): return v
     return ("#94a3b8","rgba(148,163,184,.1)","rgba(148,163,184,.28)")
 
-# ── STEP 1: RSS feed — get latest Form 4 filing URLs ─────────
-def get_filing_links(max_count: int = 100) -> list[dict]:
-    """
-    Calls the EDGAR current-filings RSS (Atom) feed filtered to Form 4.
-    Returns list of {accession, file_date, link} dicts.
-    This endpoint is always open to the public.
-    """
-    url = (
-        "https://www.sec.gov/cgi-bin/browse-edgar"
-        f"?action=getcurrent&type=4&dateb=&owner=include"
-        f"&count={max_count}&search_text=&output=atom"
-    )
-    try:
-        r = requests.get(url, headers=SEC_H, timeout=15)
-        r.raise_for_status()
-    except Exception as e:
-        return []
-
-    # Strip Atom namespace so ElementTree can parse easily
-    text = re.sub(r'\s*xmlns[^=]*="[^"]*"', "", r.text)
-    try:
-        root = ET.fromstring(text)
-    except ET.ParseError:
-        return []
-
-    entries = []
-    for entry in root.findall(".//entry"):
-        link_el   = entry.find("link")
-        href      = link_el.get("href","") if link_el is not None else ""
-        updated   = (entry.findtext("updated") or "")[:10]
-        # Skip if older than 30 days
+# ── FETCH CON RETRY (uguale a _oi_safe_fetch del biotech monitor) ──
+def oi_safe_fetch(url: str, retries: int = 3, delay: int = 4):
+    """Stesso pattern del biotech monitor: retry 3x con backoff."""
+    for attempt in range(1, retries + 1):
         try:
-            if datetime.strptime(updated, "%Y-%m-%d") < datetime.utcnow() - timedelta(days=30):
-                continue
-        except Exception:
+            r = requests.get(url, headers=HEADERS_BROWSER, timeout=20)
+            if r.status_code == 200:
+                return r
+        except Exception as e:
             pass
-        if href:
-            entries.append({"link": href, "file_date": updated})
+        if attempt < retries:
+            time.sleep(delay * attempt)
+    return None
 
-    return entries
+# ── COLUMN DETECTION (uguale al biotech monitor) ──────────────
+def _detect_columns(header_row) -> dict:
+    cols = {}
+    for i, th in enumerate(header_row.find_all(["th", "td"])):
+        txt = th.get_text(strip=True).lower()
+        if "trade" in txt and "date" in txt and "trade_date" not in cols:
+            cols["trade_date"] = i
+        elif "filing" in txt and "date" in txt and "filing_date" not in cols:
+            cols["filing_date"] = i
+        elif "ticker" in txt and "ticker" not in cols:
+            cols["ticker"] = i
+        elif "company" in txt and "company" not in cols:
+            cols["company"] = i
+        elif "insider" in txt and "insider" not in cols:
+            cols["insider"] = i
+        elif "title" in txt and "title" not in cols:
+            cols["title"] = i
+        elif ("trade type" in txt or txt == "type") and "type" not in cols:
+            cols["type"] = i
+        elif "price" in txt and "price" not in cols:
+            cols["price"] = i
+        elif "qty" in txt and "qty" not in cols:
+            cols["qty"] = i
+        elif "value" in txt and "value" not in cols:
+            cols["value"] = i
+    # Positional fallback (OpenInsider standard 14-col table)
+    defaults = {
+        "filing_date": 1, "trade_date": 2, "ticker": 3, "company": 4,
+        "insider": 5, "title": 6, "type": 7, "price": 8, "qty": 9, "value": 13,
+    }
+    for k, v in defaults.items():
+        if k not in cols:
+            cols[k] = v
+    return cols
 
-# ── STEP 2: From filing index page → find XML URL ─────────────
-def resolve_xml_url(index_url: str) -> str | None:
+def _find_table(soup) -> object:
+    """Trova la tabella dati insider in OpenInsider."""
+    for tbl in soup.find_all("table"):
+        cls = " ".join(tbl.get("class", []))
+        if "tinytable" in cls or "sortable" in cls:
+            return tbl
+    # Fallback: tabella più grande
+    tables = soup.find_all("table")
+    return max(tables, key=lambda t: len(t.find_all("tr")), default=None) if tables else None
+
+# ── PARSER TABELLA ─────────────────────────────────────────────
+def _parse_table(soup, cutoff: datetime) -> list[dict]:
     """
-    Given an EDGAR filing index page URL, find the primary Form 4 XML.
+    Stessa logica di _oi_parse_table_rows del biotech monitor,
+    adattata per restituire il formato card.
     """
-    # Convert index page URL to machine-readable JSON index
-    # e.g. .../Archives/edgar/data/CIK/ACC-NO-IDX.htm
-    #   → .../Archives/edgar/data/CIK/ACCNO/ACC-NO-index.json  (not always)
-    # Easiest: just fetch the HTML index and regex-find the XML link.
-    try:
-        r = requests.get(index_url, headers=SEC_H, timeout=8)
-        if r.status_code != 200:
-            return None
-        # Find links to XML files (not XSD, not viewer)
-        xml_links = re.findall(
-            r'href="(/Archives/edgar/data/[^"]+\.xml)"', r.text
-        )
-        xml_links = [x for x in xml_links if not x.lower().endswith(".xsd")]
-        if not xml_links:
-            return None
-        return "https://www.sec.gov" + xml_links[0]
-    except Exception:
-        return None
-
-# ── STEP 3: Fetch + parse Form 4 XML ─────────────────────────
-def fetch_and_parse(entry: dict) -> list[dict]:
-    try:
-        index_url = entry["link"]
-        file_date = entry["file_date"]
-
-        xml_url = resolve_xml_url(index_url)
-        if not xml_url:
-            return []
-
-        r = requests.get(xml_url, headers=SEC_H, timeout=8)
-        if r.status_code != 200 or b"<ownershipDocument" not in r.content:
-            return []
-
-        return _parse_xml(r.content, file_date)
-    except Exception:
+    table = _find_table(soup)
+    if not table:
+        return []
+    all_rows = table.find_all("tr")
+    if not all_rows:
         return []
 
+    cols = _detect_columns(all_rows[0])
+    results = []
 
-def _parse_xml(xml_bytes: bytes, file_date: str) -> list[dict]:
-    try:
-        text = xml_bytes.decode("utf-8", errors="ignore")
-        text = re.sub(r'\s+xmlns[^=]*="[^"]*"', "", text)
-        root = ET.fromstring(text)
-    except ET.ParseError:
-        return []
-
-    # Officer title
-    rel   = root.find(".//reportingOwnerRelationship")
-    title = ""
-    if rel is not None:
-        title = rel.findtext("officerTitle") or ""
-
-    if not is_clevel(title):
-        return []
-
-    ticker  = (root.findtext(".//issuer/issuerTradingSymbol") or "").strip().upper()
-    company = (root.findtext(".//issuer/issuerName")          or "").strip()
-    insider = (root.findtext(".//reportingOwner/reportingOwnerId/rptOwnerName") or "").strip()
-
-    if not ticker or not re.match(r"^[A-Z.]{1,6}$", ticker):
-        return []
-
-    trades = []
-    for tx in root.findall(".//nonDerivativeTransaction"):
-        if (tx.findtext(".//transactionCode") or "") != "P":
+    for tr in all_rows[1:]:
+        tds = tr.find_all("td")
+        if len(tds) < 8:
             continue
-        shares    = clean_num(tx.findtext(".//transactionShares/value")       or "0")
-        price_per = clean_num(tx.findtext(".//transactionPricePerShare/value") or "0")
-        tdate     = tx.findtext(".//transactionDate/value") or ""
-        value     = shares * price_per
-        if value <= 0 or shares <= 0:
+        try:
+            def get(key, default=""):
+                idx = cols.get(key, -1)
+                if idx < 0 or idx >= len(tds): return default
+                return tds[idx].get_text(strip=True)
+
+            # ── Tipo transazione: solo P ──────────────────
+            ttype = get("type")
+            ttype_key = ttype.split(" ")[0].upper() if ttype else ""
+            if ttype_key != "P":
+                continue
+
+            # ── Data ──────────────────────────────────────
+            trade_raw   = get("trade_date")
+            filing_raw  = get("filing_date")
+            trade_dt_s  = trade_raw[:10]  if trade_raw  else ""
+            filing_dt_s = filing_raw[:10] if filing_raw else ""
+            trade_time  = trade_raw[10:].strip()  if len(trade_raw)  > 10 else ""
+            filing_time = filing_raw[10:].strip() if len(filing_raw) > 10 else ""
+
+            try:
+                if cutoff and datetime.strptime(trade_dt_s, "%Y-%m-%d") < cutoff:
+                    continue
+            except ValueError:
+                continue
+
+            # ── Ticker ───────────────────────────────────
+            ticker_td = tds[cols.get("ticker", 3)]
+            ticker_a  = ticker_td.find("a")
+            ticker    = (ticker_a.get_text(strip=True) if ticker_a
+                         else ticker_td.get_text(strip=True)).upper().strip()
+            ticker = re.sub(r"[^A-Z.]", "", ticker)
+            if not ticker or len(ticker) > 6:
+                continue
+
+            # ── Company ───────────────────────────────────
+            company_td = tds[cols.get("company", 4)]
+            company    = company_td.get_text(strip=True)
+
+            # ── Insider + Title ────────────────────────────
+            insider_td = tds[cols.get("insider", 5)]
+            insider_a  = insider_td.find("a")
+            insider    = (insider_a.get_text(strip=True) if insider_a
+                          else insider_td.get_text(strip=True)).strip()
+            title = get("title")
+
+            # ── Filtro C-Level ────────────────────────────
+            if not is_clevel(title):
+                continue
+
+            # ── Price, Qty, Value ─────────────────────────
+            price = clean_num(_oi_parse_num(get("price", "0")))
+            qty   = clean_num(_oi_parse_num(get("qty",   "0")))
+            val_s = _oi_parse_num(get("value", "0"))
+            try:
+                value = float(val_s) if val_s else abs(qty) * price
+                if value <= 0:
+                    value = abs(qty) * price
+            except Exception:
+                value = abs(qty) * price
+
+            if qty == 0 or price <= 0:
+                continue
+
+            results.append({
+                "ticker":       ticker,
+                "company":      company,
+                "insider":      insider,
+                "title":        title,
+                "price":        price,
+                "qty":          f"{int(qty):,}",
+                "value":        value,
+                "trade_date":   trade_dt_s,
+                "trade_time":   trade_time,
+                "filing_date":  filing_dt_s,
+                "filing_time":  filing_time,
+            })
+        except Exception:
             continue
-        trades.append({
-            "ticker":      ticker,
-            "company":     company,
-            "insider":     insider,
-            "title":       title,
-            "price":       price_per,
-            "qty":         f"{int(shares):,}",
-            "value":       value,
-            "trade_date":  tdate,
-            "trade_time":  "",
-            "filing_date": file_date,
-            "filing_time": "",
-        })
-    return trades
+
+    return results
+
+# ── URL BUILDER ───────────────────────────────────────────────
+def build_url(vl: int, vh: int, days: int = 30) -> str:
+    """
+    HTTP (non HTTPS!) — porta 80 — stesso approccio del biotech monitor.
+    Parametri dalla screenshot: P-Purchase, C-Level titles, vl/vh, fd=30.
+    """
+    vh_s = str(vh) if vh > 0 else ""
+    return (
+        f"http://openinsider.com/screener?"
+        f"s=&o=&pl=&ph=&ll=&lh="
+        f"&fd={days}&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago="
+        f"&xp=1&xs=0&xa=0&xd=0&xg=0&xf=0&xm=0&xx=0&xo=0"
+        f"&vl={vl}&vh={vh_s}"
+        f"&ocl=&och=&sic1=-1&sicl=100&sich=9999"
+        f"&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h="
+        f"&isofficer=1&iscob=1&isceo=1&ispres=1&iscoo=1&iscfo=1&isgc=1&isvp=1"
+        f"&isdirector=0&is10percent=0&isother=0"
+        f"&sortcol=0&cnt=200&Action=Submit"
+    )
 
 # ── MAIN FETCH (cached 5 min) ─────────────────────────────────
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_trades(vl_k: int, vh_k: int) -> tuple[list, str]:
-    entries = get_filing_links(max_count=100)
-    if not entries:
-        return [], "Impossibile raggiungere SEC EDGAR RSS (www.sec.gov)"
+def fetch_trades(vl: int, vh: int) -> tuple:
+    url = build_url(vl, vh)
+    r   = oi_safe_fetch(url)
+    if r is None:
+        return [], f"OpenInsider non raggiungibile (3 tentativi falliti)"
 
-    all_trades: list = []
-    with ThreadPoolExecutor(max_workers=20) as ex:
-        futures = [ex.submit(fetch_and_parse, e) for e in entries]
-        for fut in as_completed(futures):
-            try: all_trades.extend(fut.result())
-            except: pass
-
-    min_v = vl_k * 1_000
-    max_v = vh_k * 1_000 if vh_k > 0 else float("inf")
-    return [t for t in all_trades if min_v <= t["value"] <= max_v], ""
+    soup   = BeautifulSoup(r.text, "html.parser")
+    cutoff = datetime.now() - timedelta(days=31)
+    trades = _parse_table(soup, cutoff)
+    return trades, ""
 
 # ── YFINANCE ─────────────────────────────────────────────────
 @st.cache_data(ttl=600, show_spinner=False)
@@ -288,38 +343,39 @@ def enrich(ticker: str) -> dict:
     try:
         import yfinance as yf
         info = yf.Ticker(ticker).info
-        price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose",0)
+        price = (info.get("currentPrice") or info.get("regularMarketPrice")
+                 or info.get("previousClose", 0))
         return {
-            "price":    round(float(price),2) if price else 0.0,
+            "price":    round(float(price), 2) if price else 0.0,
             "exchange": (info.get("exchange") or info.get("fullExchangeName") or "—").upper(),
             "sector":   info.get("sector") or info.get("sectorDisp") or "—",
         }
     except:
-        return {"price":0.0,"exchange":"—","sector":"—"}
+        return {"price": 0.0, "exchange": "—", "sector": "—"}
 
 # ── DISK CACHE ────────────────────────────────────────────────
 def save_disk(trades):
     try:
-        with open(CACHE_FILE,"w") as f:
-            json.dump({"trades":trades,"at":datetime.utcnow().isoformat()},f)
+        with open(CACHE_FILE, "w") as f:
+            json.dump({"trades": trades, "at": datetime.utcnow().isoformat()}, f)
     except: pass
 
 def load_disk():
     try:
-        with open(CACHE_FILE) as f: d=json.load(f)
-        return d.get("trades",[]), d.get("at","")
-    except: return [],""
+        with open(CACHE_FILE) as f: d = json.load(f)
+        return d.get("trades", []), d.get("at", "")
+    except: return [], ""
 
 # ── CARD ──────────────────────────────────────────────────────
 def render_card(t: dict, info: dict):
-    ticker=t["ticker"]; price=info.get("price",0.0)
-    exchange=info.get("exchange","—"); sector=info.get("sector","—")
-    sc,sbg,sbd=sector_style(sector)
-    price_str=f"${price:.2f}" if price else "—"
-    co=(t.get("company","") or ""); co=(co[:36]+"…") if len(co)>36 else co
-    title_s=(t.get("title","") or "")[:32]
-    qty_s=re.sub(r"[^\d,]","",t.get("qty",""))
-    tp_s=f"@ ${t['price']:.2f}" if t.get("price") else ""
+    ticker = t["ticker"]; price = info.get("price", 0.0)
+    exchange = info.get("exchange", "—"); sector = info.get("sector", "—")
+    sc, sbg, sbd = sector_style(sector)
+    price_str = f"${price:.2f}" if price else "—"
+    co = (t.get("company", "") or ""); co = (co[:36] + "…") if len(co) > 36 else co
+    title_s = (t.get("title", "") or "")[:32]
+    qty_s   = re.sub(r"[^\d,]", "", t.get("qty", ""))
+    tp_s    = f"@ ${t['price']:.2f}" if t.get("price") else ""
 
     st.markdown(f"""
 <div class="card">
@@ -357,7 +413,7 @@ def main():
     st.markdown("""
 <div class="app-header">
   <h1>📈 Insider Buy Tracker</h1>
-  <div class="sub"><span class="pulse"></span>C-Level purchases · SEC EDGAR · Form 4</div>
+  <div class="sub"><span class="pulse"></span>C-Level purchases · OpenInsider · SEC Form 4</div>
 </div>""", unsafe_allow_html=True)
 
     st.markdown('<span class="filter-label">💰 Min Value (K$)</span>', unsafe_allow_html=True)
@@ -366,23 +422,23 @@ def main():
     st.markdown('<span class="filter-label">🔝 Max Value (K$) — 0 = no limit</span>', unsafe_allow_html=True)
     vh = st.slider("max_v", 0, 10_000, 1_000, 100, label_visibility="collapsed")
 
-    col_s,col_b = st.columns([3,1])
+    col_s, col_b = st.columns([3, 1])
     with col_s:
         sort_by = st.selectbox("Sort by",
-            ["Value ↓","Filing Date ↓","Trade Date ↓"], label_visibility="visible")
+            ["Value ↓", "Filing Date ↓", "Trade Date ↓"], label_visibility="visible")
     with col_b:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔄 Refresh"):
             st.cache_data.clear()
-            st.session_state.pop("show_count",None)
+            st.session_state.pop("show_count", None)
             st.rerun()
 
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
     st.markdown(
-        '<div class="info-banner">🔗 Fonte: <b>SEC EDGAR RSS</b> · www.sec.gov · Form 4 XML</div>',
+        '<div class="info-banner">🔗 Fonte: <b>OpenInsider</b> · SEC Form 4 · C-Level only</div>',
         unsafe_allow_html=True)
 
-    prog = st.progress(0, text="⏳ Caricamento Form 4 da SEC EDGAR…")
+    prog = st.progress(0, text="⏳ Caricamento da OpenInsider…")
     trades, err = fetch_trades(vl, vh)
     prog.progress(100, text="✅ Fatto")
     prog.empty()
@@ -397,8 +453,9 @@ def main():
     if err:
         st.markdown(f'<div class="error-banner">⚠️ {err}</div>', unsafe_allow_html=True)
     if using_stale:
-        st.markdown(f'<div class="stale-banner">📦 Dati salvati ({stale_ts[:16]} UTC)</div>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="stale-banner">📦 Dati salvati ({stale_ts[:16]} UTC)</div>',
+            unsafe_allow_html=True)
 
     if not trades:
         st.markdown("""
@@ -433,13 +490,14 @@ def main():
 
     remaining = len(trades) - st.session_state.show_count
     if remaining > 0:
-        if st.button(f"⬇️  Carica altri {min(BATCH,remaining)}  ({remaining} rimanenti)"):
+        if st.button(f"⬇️  Carica altri {min(BATCH, remaining)}  ({remaining} rimanenti)"):
             st.session_state.show_count += BATCH
             st.rerun()
 
     st.markdown(
         f'<p style="text-align:center;color:#6e7681;font-size:.68rem;margin-top:1.4rem;">'
-        f'Fonte: SEC EDGAR · Cache 5 min · {datetime.utcnow().strftime("%d %b %Y %H:%M")} UTC</p>',
+        f'Fonte: openinsider.com · Cache 5 min · '
+        f'{datetime.utcnow().strftime("%d %b %Y %H:%M")} UTC</p>',
         unsafe_allow_html=True)
 
 if __name__ == "__main__":
