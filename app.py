@@ -97,6 +97,20 @@ CLEVEL_KW = [
 ]
 EXCLUDE_KW = ["director","10% owner","beneficial owner"]
 
+# ── GIORNI LAVORATIVI ─────────────────────────────────────────
+def business_days_ago(n: int) -> datetime:
+    """
+    Ritorna la data (mezzanotte) di N giorni lavorativi fa,
+    saltando sabato (5) e domenica (6).
+    """
+    date = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    counted = 0
+    while counted < n:
+        date -= timedelta(days=1)
+        if date.weekday() < 5:   # lunedì=0 … venerdì=4
+            counted += 1
+    return date
+
 SECTOR_THEME = {
     "Technology":    ("#818cf8","rgba(99,102,241,.1)","rgba(99,102,241,.28)"),
     "Healthcare":    ("#34d399","rgba(52,211,153,.1)","rgba(52,211,153,.28)"),
@@ -422,6 +436,18 @@ def main():
     st.markdown('<span class="filter-label">🔝 Max Value (K$) — 0 = no limit</span>', unsafe_allow_html=True)
     vh = st.slider("max_v", 0, 10_000, 1_000, 100, label_visibility="collapsed")
 
+    st.markdown('<span class="filter-label">📅 Giorni lavorativi (da oggi indietro)</span>', unsafe_allow_html=True)
+    bdays = st.slider("bdays", 1, 7, 7, 1, label_visibility="collapsed",
+                      help="Mostra solo i trade degli ultimi N giorni lavorativi (max 7)")
+
+    # Calcola la data minima corrispondente e mostrala
+    cutoff_bday = business_days_ago(bdays)
+    st.markdown(
+        f'<p style="font-size:.72rem;color:#6e7681;margin:-.3rem 0 .6rem 0;">'
+        f'Dal <b style="color:#10b981">{cutoff_bday.strftime("%d %b %Y")}</b> ad oggi '
+        f'({bdays} giorno{"" if bdays==1 else "i"} lavorativo{"" if bdays==1 else "i"})</p>',
+        unsafe_allow_html=True)
+
     col_s, col_b = st.columns([3, 1])
     with col_s:
         sort_by = st.selectbox("Sort by",
@@ -462,6 +488,19 @@ def main():
 <div class="empty-state">
   <div class="ei">🔍</div>
   <p>Nessun acquisto C-Level trovato.<br>Prova a ridurre il valore minimo o premi Refresh.</p>
+</div>""", unsafe_allow_html=True)
+        return
+
+    # ── Filtro giorni lavorativi ──────────────────────────────
+    cutoff_str = cutoff_bday.strftime("%Y-%m-%d")
+    trades = [t for t in trades if t.get("trade_date", "") >= cutoff_str]
+
+    if not trades:
+        st.markdown(f"""
+<div class="empty-state">
+  <div class="ei">📅</div>
+  <p>Nessun acquisto negli ultimi <b>{bdays}</b> giorni lavorativi.<br>
+  Prova ad aumentare i giorni o abbassare il valore minimo.</p>
 </div>""", unsafe_allow_html=True)
         return
 
