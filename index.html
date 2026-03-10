@@ -4,30 +4,37 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OS Insider</title>
+<link rel="manifest" href="manifest.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="application-name" content="OS">
+<meta name="theme-color" content="#ffcc00">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="OS Insider">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="application-name" content="OS Insider">
-<meta name="theme-color" content="#10b981">
-<link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAFJ0lEQVR42u3cbW4TVxSAYf+nhVBoEvq9GDbWZXVVXcLURiBQcRJ7fD/OuecZ6ZUiIXs8957HJGHM4ZDguHv8a1PODo7njzcPf26qnYGXVgdhY1UOgk1USQw2TGUh2CSVRGBjVBaCzVBJBDZAZSFYdJVFYLFVFoFFVlkEFldlEVhUlUVgMVUagYVUWQAWUWURWDyVRmDhVBaARVNZBG8e/tikFQNAABh+QQCAAABAABh+QfAJwP3xD6UCGX5BAIAAAEAAAKDCACyGSiOwEAJAAkACQAJAAkACQAJAmtLdP3/3BfD6/vdNithp+E/1PAcACjv4AGj5AXzp3ACoDIBzww+Algfw1OADoOUBvDT8AGhJAJcMPgBaEsA1ww+AlgJw7fADoCUA7Bn8ET+AA6DuACIOPgDqDiDquz4A6g4g+uB/BfDz8Qvpm74bzBsff9HwT7pWANQMwO5veSZeKwBqAiDb4AOgJgAyvusDcMNf6Ste08iirQcAAJQdfgAAKD38nwH8tul85zdyvWvqO/ix1wMAAMoOPwAAlB18AAAoP/wAAFB6+AEAoOzgAwAAAADEBdDrvAAAAAAAAAAAAAAAAGDQ6wDw608A0rwbtn5ev/8HoCwA//oLQEkAbnoDoCwAd30CUBLAnA+7AABAAADzPu0FAACTAcz9rC8AAEwCMPt/eUgP4Mf3v25V6zEMM889q8wzAEAhALOvGQAApgCIcs0AADAcQKRrBgCAoQCiXTMAAAwBEPWaAdjRvx8/fhcA+88PAADLAoh+zQAAAAAAAAAAAAAAAAAAAAAAEG4QVxpwAIq8CwMAQHgAWe7KBACA5kOY6bZkAAAIffMZAACkAJD1gykAAHDzEGb+ZBYAkwf81ip+LBGA3QB+2WbWB8Bl514PQJs96fW8EQMAAAAAGD+oAABQEkDPcwMAQGgAvc8NAABXARgFZBS+lQe1H4B3xy8m1gVAo9fWZCg7Pvel59LTAdAJwAhcAAAQEsCov10AAKAbgN5DCAAAYQGMGD4AAAgHYOTgAQBAKACjBw4AAMIAmDFsAAAwHcDMQQMAgKkAog+Z4QagC4As77IAANAcQKZvMwAAoCmAbN9nAwBAEwBZf6AEYBCAH9592GbWA8CX594z+LPX46nXHuV1rdaSAPa+60faGAAAGAYg4sYAAMAQAFE3BgAAugOIvDEAANANQIaNAQCALgCybAwAADQFkG1jAACgGQAbrbIAbLJKArC5KgvAxgoA6SIAPx2/mFgXAJOvSXkCQAAAIAAAEABjO/26EgCVBHDpHZsGXEsBuPbDKgCoM4DHbVR7PqZ4HsCj1KRD1MH/dDvD8bEAKDWAvYP/JQBUCsD/Hw+AygA493gAtDyA5x4PgJYG8NLjbwVwy9F7bVoehjkZgEsfDwAAywG45vEAALAUgNEXCIBCAJh1gQDoWQCnozeAmRcIgKYCiDDwqz2XAABAAAAgAAAQAAAIAAAEAAACAABdA+B0vHr7sK3QuWO151KbDt8eAAAAAAAAAADAqKG95TDAjQGsggAA7Rp+AAAoD2AFBABo9/ADAAAAAKQAAEQnANkRVPjVJQAdhx8AAMoDyIwAAN08/JkRAKAmww8AAOUBZEQAgJoNf0YEAKjp8AMAQHkAmRAAoObDnwkBAOoy/FkQAKBD7+PV2/stS7fdXxPjdfR+bSt1GHUAAEDZ4c+EAADDXxoCAAa/NAIADD8IMvhDEdwdX6jUoUOmw4ap5ODDIEMPggw+EIo98P8BY9LTtionVSQAAAAASUVORK5CYII=">
-<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-title" content="OS">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;background:#0d1117;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px;font-family:system-ui,sans-serif;color:#e6edf3}
-img{width:88px;height:88px;border-radius:20px}
-h1{font-size:1.5rem;font-weight:800;color:#fff}
-p{font-size:.85rem;color:#6e7681}
-.bar{width:200px;height:4px;background:#21262d;border-radius:2px;overflow:hidden}
-.fill{height:100%;width:0%;background:linear-gradient(90deg,#10b981,#059669);border-radius:2px;animation:ld 1.6s ease forwards}
-@keyframes ld{0%{width:0}80%{width:90%}100%{width:100%}}
+html,body{width:100%;height:100%;background:linear-gradient(160deg,#ffcc00,#dba800);
+  display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:20px;font-family:system-ui,sans-serif;}
+.icon{width:100px;height:100px;background:linear-gradient(160deg,#ffcc00,#dba800);
+  border-radius:24px;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 8px 32px rgba(0,0,0,.25);font-size:3rem;font-weight:900;
+  color:#0f0f0f;letter-spacing:-2px;}
+h1{font-size:1.6rem;font-weight:800;color:#0f0f0f;letter-spacing:-1px}
+p{font-size:.85rem;color:rgba(0,0,0,.55)}
+.bar{width:180px;height:5px;background:rgba(0,0,0,.15);border-radius:3px;overflow:hidden}
+.fill{height:100%;width:0%;background:#0f0f0f;border-radius:3px;animation:ld 1.5s ease forwards}
+@keyframes ld{0%{width:0}85%{width:92%}100%{width:100%}}
 </style>
 </head>
 <body>
-<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAFJ0lEQVR42u3cbW4TVxSAYf+nhVBoEvq9GDbWZXVVXcLURiBQcRJ7fD/OuecZ6ZUiIXs8957HJGHM4ZDguHv8a1PODo7njzcPf26qnYGXVgdhY1UOgk1USQw2TGUh2CSVRGBjVBaCzVBJBDZAZSFYdJVFYLFVFoFFVlkEFldlEVhUlUVgMVUagYVUWQAWUWURWDyVRmDhVBaARVNZBG8e/tikFQNAABh+QQCAAABAABh+QfAJwP3xD6UCGX5BAIAAAEAAAKDCACyGSiOwEAJAAkACQAJAAkACQAJAmtLdP3/3BfD6/vdNithp+E/1PAcACjv4AGj5AXzp3ACoDIBzww+Algfw1OADoOUBvDT8AGhJAJcMPgBaEsA1ww+AlgJw7fADoCUA7Bn8ET+AA6DuACIOPgDqDiDquz4A6g4g+uB/BfDz8Qvpm74bzBsff9HwT7pWANQMwO5veSZeKwBqAiDb4AOgJgAyvusDcMNf6Ste08iirQcAAJQdfgAAKD38nwH8tul85zdyvWvqO/ix1wMAAMoOPwAAlB18AAAoP/wAAFB6+AEAoOzgAwAAAADEBdDrvAAAAAAAAAAAAAAAAGDQ6wDw608A0rwbtn5ev/8HoCwA//oLQEkAbnoDoCwAd30CUBLAnA+7AABAAADzPu0FAACTAcz9rC8AAEwCMPt/eUgP4Mf3v25V6zEMM889q8wzAEAhALOvGQAApgCIcs0AADAcQKRrBgCAoQCiXTMAAAwBEPWaAdjRvx8/fhcA+88PAADLAoh+zQAAAAAAAAAAAAAAAAAAAAAAEG4QVxpwAIq8CwMAQHgAWe7KBACA5kOY6bZkAAAIffMZAACkAJD1gykAAHDzEGb+ZBYAkwf81ip+LBGA3QB+2WbWB8Bl514PQJs96fW8EQMAAAAAGD+oAABQEkDPcwMAQGgAvc8NAABXARgFZBS+lQe1H4B3xy8m1gVAo9fWZCg7Pvel59LTAdAJwAhcAAAQEsCov10AAKAbgN5DCAAAYQGMGD4AAAgHYOTgAQBAKACjBw4AAMIAmDFsAAAwHcDMQQMAgKkAog+Z4QagC4As77IAANAcQKZvMwAAoCmAbN9nAwBAEwBZf6AEYBCAH9592GbWA8CX594z+LPX46nXHuV1rdaSAPa+60faGAAAGAYg4sYAAMAQAFE3BgAAugOIvDEAANANQIaNAQCALgCybAwAADQFkG1jAACgGQAbrbIAbLJKArC5KgvAxgoA6SIAPx2/mFgXAJOvSXkCQAAAIAAAEABjO/26EgCVBHDpHZsGXEsBuPbDKgCoM4DHbVR7PqZ4HsCj1KRD1MH/dDvD8bEAKDWAvYP/JQBUCsD/Hw+AygA493gAtDyA5x4PgJYG8NLjbwVwy9F7bVoehjkZgEsfDwAAywG45vEAALAUgNEXCIBCAJh1gQDoWQCnozeAmRcIgKYCiDDwqz2XAABAAAAgAAAQAAAIAAAEAAACAABdA+B0vHr7sK3QuWO151KbDt8eAAAAAAAAAADAqKG95TDAjQGsggAA7Rp+AAAoD2AFBABo9/ADAAAAAKQAAEQnANkRVPjVJQAdhx8AAMoDyIwAAN08/JkRAKAmww8AAOUBZEQAgJoNf0YEAKjp8AMAQHkAmRAAoObDnwkBAOoy/FkQAKBD7+PV2/stS7fdXxPjdfR+bSt1GHUAAEDZ4c+EAADDXxoCAAa/NAIADD8IMvhDEdwdX6jUoUOmw4ap5ODDIEMPggw+EIo98P8BY9LTtionVSQAAAAASUVORK5CYII=" alt="OS Insider">
-<h1>OS Insider</h1>
-<p>Caricamento…</p>
-<div class="bar"><div class="fill"></div></div>
-<script>setTimeout(()=>window.location.replace("https://insider-tracker-v19w7jhfxw2hd5zyixbtsq.streamlit.app/"),1700)</script>
+  <div class="icon">OS</div>
+  <h1>OS Insider</h1>
+  <p>OpenInSider · C-Level Purchases</p>
+  <div class="bar"><div class="fill"></div></div>
+  <script>
+    setTimeout(function(){ window.location.replace( + STREAMLIT_URL + ); }, 1600);
+  </script>
 </body>
 </html>
