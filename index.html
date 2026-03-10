@@ -4,28 +4,45 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OS OpenInSider</title>
+
+<!-- Fallback redirect se JS non funziona -->
+<meta http-equiv="refresh" content="2;url=https://insider-tracker-3pv8nsbqmjeofpk2mww8kj.streamlit.app">
+
+<!-- PWA Android -->
 <link rel="manifest" href="manifest.json">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="application-name" content="OS">
 <meta name="theme-color" content="#ffcc00">
+
+<!-- PWA iOS -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="OS">
 <link rel="apple-touch-icon" href="icon-192.png">
+
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;background:linear-gradient(160deg,#ffcc00,#dba800);
-  display:flex;align-items:center;justify-content:center;
-  flex-direction:column;gap:20px;font-family:system-ui,sans-serif;}
-.icon{width:100px;height:100px;background:linear-gradient(160deg,#ffcc00,#dba800);
-  border-radius:24px;display:flex;align-items:center;justify-content:center;
-  box-shadow:0 8px 32px rgba(0,0,0,.25);font-size:3rem;font-weight:900;
-  color:#0f0f0f;letter-spacing:-2px;}
-h1{font-size:1.6rem;font-weight:800;color:#0f0f0f;letter-spacing:-1px}
-p{font-size:.85rem;color:rgba(0,0,0,.55)}
-.bar{width:180px;height:5px;background:rgba(0,0,0,.15);border-radius:3px;overflow:hidden}
-.fill{height:100%;width:0%;background:#0f0f0f;border-radius:3px;animation:ld 1.5s ease forwards}
-@keyframes ld{0%{width:0}85%{width:92%}100%{width:100%}}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%;
+  background: linear-gradient(160deg, #ffcc00, #dba800);
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 20px;
+  font-family: system-ui, sans-serif;
+}
+.icon {
+  width: 100px; height: 100px;
+  background: linear-gradient(160deg, #ffcc00, #dba800);
+  border-radius: 24px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  font-size: 3rem; font-weight: 900;
+  color: #0f0f0f; letter-spacing: -2px;
+}
+h1 { font-size: 1.6rem; font-weight: 800; color: #0f0f0f; letter-spacing: -1px; }
+p  { font-size: 0.85rem; color: rgba(0,0,0,0.55); }
+.bar  { width: 180px; height: 5px; background: rgba(0,0,0,0.15); border-radius: 3px; overflow: hidden; }
+.fill { height: 100%; width: 0%; background: #0f0f0f; border-radius: 3px; animation: ld 1.5s ease forwards; }
+@keyframes ld { 0% { width: 0%; } 85% { width: 92%; } 100% { width: 100%; } }
 </style>
 </head>
 <body>
@@ -34,9 +51,12 @@ p{font-size:.85rem;color:rgba(0,0,0,.55)}
   <p>OpenInSider &middot; C-Level Purchases</p>
   <div class="bar"><div class="fill"></div></div>
   <script>
-    setTimeout(function(){
-      window.location.replace("https://insider-tracker-3pv8nsbqmjeofpk2mww8kj.streamlit.app");
-    }, 1600);
+    var dest = 'https://insider-tracker-3pv8nsbqmjeofpk2mww8kj.streamlit.app';
+    window.onload = function() {
+      setTimeout(function() {
+        window.location.href = dest;
+      }, 1600);
+    };
   </script>
 </body>
 </html>
