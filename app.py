@@ -1,643 +1,367 @@
 """
-Insider Buy Tracker  v7
-• http://openinsider.com (HTTP porta 80 + Chrome UA + BeautifulSoup)
-• Auto-refresh via JavaScript (nessun pacchetto extra)
-• Pannello filtri ridisegnato con spiegazioni in italiano
-• Carica insider reale da SEC + filtro settore da yfinance
+OS OpenInSider  v8
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Fonte dati: http://openinsider.com  (HTTP porta 80)
+• Estrazione: Chrome UA + BeautifulSoup + retry x3
+• Filtri: solo valore min/max — finestra fissa 2 giorni
+• Auto-refresh JS con countdown
+• Card dinamiche con trade date + filing date distinte
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 import streamlit as st
-import requests
-import re
-import json
-import time
+import requests, re, json, time
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
-# ── PAGE CONFIG ───────────────────────────────────────────────
-st.set_page_config(
-    page_title="Insider Buy Tracker",
-    page_icon="📈",
-    layout="centered",
-    initial_sidebar_state="collapsed",
-)
+st.set_page_config(page_title="OS OpenInSider", page_icon="📈",
+                   layout="centered", initial_sidebar_state="collapsed")
 
-# ── STYLES ────────────────────────────────────────────────────
+# ─── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
-
-html,body,[class*="css"]{
-  font-family:'DM Sans',sans-serif!important;
-  background:#0d1117!important;
-  color:#e6edf3!important;
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap');
+html,body,[class*="css"]{font-family:'Inter',sans-serif!important;background:#080c10!important;color:#e2e8f0!important}
 #MainMenu,footer,header{visibility:hidden}
-.block-container{padding:.8rem .9rem 4rem!important;max-width:560px!important;margin:auto}
+.block-container{padding:.6rem .85rem 4rem!important;max-width:540px!important;margin:auto}
 
-/* ── App Header ── */
-.app-header{text-align:center;padding:1.4rem 0 1rem}
-.app-header h1{font-size:1.75rem;font-weight:800;letter-spacing:-.6px;color:#fff;margin:0}
-.app-header .sub{font-size:.78rem;color:#6e7681;margin:.25rem 0 0;
-  display:flex;align-items:center;justify-content:center;gap:6px}
-.pulse{display:inline-block;width:7px;height:7px;background:#10b981;
-  border-radius:50%;animation:blink 2s ease-in-out infinite}
-@keyframes blink{
-  0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.6);opacity:1}
-  50%{box-shadow:0 0 0 5px rgba(16,185,129,0);opacity:.6}
-}
+/* HEADER */
+.app-header{text-align:center;padding:1.6rem 0 1.2rem;position:relative}
+.header-glow{position:absolute;top:-20px;left:50%;transform:translateX(-50%);width:280px;height:110px;background:radial-gradient(ellipse,rgba(16,185,129,.16) 0%,transparent 70%);pointer-events:none}
+.app-header h1{font-size:1.85rem;font-weight:900;letter-spacing:-.8px;color:#fff;margin:0;line-height:1.1}
+.app-header h1 span{color:#10b981}
+.header-sub{font-size:.7rem;color:#374151;margin:.4rem 0 0;display:flex;align-items:center;justify-content:center;gap:8px;letter-spacing:.05em;text-transform:uppercase;font-weight:600}
+.live-dot{width:6px;height:6px;background:#10b981;border-radius:50%;box-shadow:0 0 0 0 rgba(16,185,129,.6);animation:ping 2s ease infinite}
+@keyframes ping{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.6)}50%{box-shadow:0 0 0 7px rgba(16,185,129,0)}}
 
-/* ── Filter Panel ── */
-.filter-panel{
-  background:#161b22;
-  border:1px solid #21262d;
-  border-radius:16px;
-  padding:1.1rem 1.2rem 1rem;
-  margin-bottom:1rem;
-}
-.filter-panel-title{
-  font-size:.65rem;font-weight:700;letter-spacing:.12em;
-  text-transform:uppercase;color:#6e7681;
-  margin:0 0 .9rem 0;display:flex;align-items:center;gap:6px;
-}
-.filter-block{margin-bottom:1rem}
-.filter-block:last-child{margin-bottom:0}
-.filter-name{
-  font-size:.8rem;font-weight:700;color:#e6edf3;
-  margin-bottom:.1rem;display:flex;align-items:center;gap:5px;
-}
-.filter-desc{
-  font-size:.7rem;color:#6e7681;line-height:1.45;
-  margin-bottom:.4rem;
-}
-.filter-value{
-  font-family:'JetBrains Mono',monospace;
-  font-size:.78rem;font-weight:600;color:#10b981;
-  margin-bottom:.25rem;
-}
+/* FILTER CARDS */
+.fc-wrap{background:#0f1419;border:1px solid #1a2030;border-radius:14px;padding:12px 14px 10px;margin-top:4px}
+.fc-label{font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#374151;margin-bottom:3px}
+.fc-value{font-family:'JetBrains Mono',monospace;font-size:1.1rem;font-weight:700;color:#10b981}
+.fc-sub{font-size:.62rem;color:#1f2937;margin-top:2px}
 
-/* ── Auto-refresh bar ── */
-.refresh-bar{
-  background:#0d1117;
-  border:1px solid #21262d;
-  border-radius:12px;
-  padding:.65rem 1rem;
-  margin-bottom:1rem;
-  display:flex;align-items:center;justify-content:space-between;gap:8px;
-}
-.refresh-left{display:flex;align-items:center;gap:8px}
-.refresh-dot-on{width:8px;height:8px;background:#10b981;border-radius:50%;
-  animation:blink 2s ease-in-out infinite;flex-shrink:0}
-.refresh-dot-off{width:8px;height:8px;background:#6e7681;border-radius:50%;flex-shrink:0}
-.refresh-label{font-size:.75rem;font-weight:600;color:#e6edf3}
-.refresh-sub{font-size:.67rem;color:#6e7681}
-.refresh-countdown{
-  font-family:'JetBrains Mono',monospace;
-  font-size:.85rem;font-weight:700;color:#10b981;
-  white-space:nowrap;
-}
+/* WINDOW BADGE */
+.window-badge{display:flex;align-items:center;gap:10px;background:#0f1419;border:1px solid #1a2030;border-radius:12px;padding:10px 14px;margin:10px 0 8px}
+.window-text{font-size:.76rem;color:#4b5563;line-height:1.5}
+.window-text b{color:#c9d1d9;font-weight:700}
 
-/* ── Stats bar ── */
-.stats-bar{
-  display:flex;justify-content:space-around;
-  background:#161b22;border:1px solid #21262d;
-  border-radius:12px;padding:.75rem .5rem;margin-bottom:1rem;
-}
-.stat{flex:1;text-align:center}
-.stat-n{font-family:'JetBrains Mono',monospace;font-size:1.1rem;font-weight:700;color:#10b981}
-.stat-l{font-size:.62rem;color:#6e7681;text-transform:uppercase;letter-spacing:.07em}
+/* AUTO-REFRESH BAR */
+.ar-bar{display:flex;align-items:center;justify-content:space-between;background:#0a0f14;border:1px solid #1a2030;border-radius:12px;padding:10px 14px;margin-bottom:14px}
+.ar-left{display:flex;align-items:center;gap:10px}
+.ar-dot-on{width:8px;height:8px;background:#10b981;border-radius:50%;flex-shrink:0;animation:ping 2s ease infinite}
+.ar-dot-off{width:8px;height:8px;background:#1f2937;border-radius:50%;flex-shrink:0}
+.ar-title{font-size:.73rem;font-weight:700;color:#e2e8f0}
+.ar-sub{font-size:.62rem;color:#374151;margin-top:1px}
 
-/* ── Card ── */
-.card{
-  background:#161b22;border:1px solid #21262d;
-  border-radius:14px;padding:1rem 1.1rem .9rem;
-  margin-bottom:.8rem;position:relative;overflow:hidden;
-  transition:border-color .18s;
-}
-.card::before{
-  content:'';position:absolute;left:0;top:0;bottom:0;width:4px;
-  background:linear-gradient(180deg,#10b981,#059669);
-  border-radius:14px 0 0 14px;
-}
-.card:hover{border-color:rgba(16,185,129,.5)}
-.card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:.55rem}
-.ticker{font-family:'JetBrains Mono',monospace;font-size:1.6rem;font-weight:700;
-  color:#fff;letter-spacing:-.5px;line-height:1}
-.company-name{font-size:.72rem;color:#6e7681;margin-top:1px}
-.price-pill{
-  font-family:'JetBrains Mono',monospace;font-size:1rem;font-weight:600;
-  color:#10b981;background:rgba(16,185,129,.1);
-  border:1px solid rgba(16,185,129,.22);border-radius:8px;
-  padding:3px 11px;white-space:nowrap;
-}
-.badges{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:.65rem}
-.badge{font-size:.68rem;font-weight:600;padding:2px 8px;border-radius:20px;
-  white-space:nowrap;letter-spacing:.03em}
-.b-market{background:#1c2128;color:#8b949e;border:1px solid #30363d}
-.b-sector{background:rgba(99,102,241,.1);color:#a5b4fc;border:1px solid rgba(99,102,241,.28)}
-.role-row{display:flex;align-items:center;gap:8px;margin-bottom:.55rem}
-.role-pill{
-  font-family:'JetBrains Mono',monospace;font-size:.85rem;font-weight:700;
-  color:#0d1117;background:#fbbf24;border-radius:6px;
-  padding:3px 10px;letter-spacing:.04em;text-transform:uppercase;
-}
-.role-full{font-size:.75rem;color:#8b949e}
-.value-row{display:flex;align-items:baseline;gap:8px;margin-bottom:.65rem}
-.v-icon{font-size:1rem}
-.v-amount{font-family:'JetBrains Mono',monospace;font-size:1.3rem;font-weight:700;color:#10b981}
-.v-detail{font-size:.71rem;color:#6e7681}
-.dates-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-.date-box{background:#0d1117;border:1px solid #21262d;border-radius:9px;padding:.4rem .6rem}
-.date-lbl{font-size:.62rem;font-weight:700;text-transform:uppercase;
-  letter-spacing:.08em;color:#6e7681;margin-bottom:2px}
-.date-val{font-family:'JetBrains Mono',monospace;font-size:.77rem;
-  font-weight:500;color:#e6edf3;line-height:1.3}
-.date-time{font-size:.67rem;color:#6e7681}
-.insider-row{margin-top:.55rem;font-size:.75rem;color:#8b949e;
-  display:flex;align-items:center;gap:5px}
+/* STATS BAR */
+.stats-bar{display:grid;grid-template-columns:1fr 1fr 1fr;background:#0f1419;border:1px solid #1a2030;border-radius:14px;padding:.7rem .4rem .5rem;margin-bottom:.9rem;overflow:hidden;position:relative}
+.stats-bar::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#10b981,transparent)}
+.stat{text-align:center;padding:.1rem 0}
+.stat+.stat{border-left:1px solid #111822}
+.stat-n{font-family:'JetBrains Mono',monospace;font-size:1rem;font-weight:700;color:#10b981}
+.stat-l{font-size:.57rem;color:#374151;text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+.stat-ts{grid-column:1/-1;text-align:center;font-size:.58rem;color:#1f2937;margin-top:.35rem;border-top:1px solid #0f1419;padding-top:.3rem;letter-spacing:.03em}
 
-/* ── Banners ── */
-.stale-banner{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.28);
-  border-radius:10px;padding:.55rem 1rem;font-size:.78rem;color:#fbbf24;
-  margin-bottom:.9rem;text-align:center}
-.error-banner{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.25);
-  border-radius:10px;padding:.55rem 1rem;font-size:.75rem;color:#fca5a5;margin-bottom:.9rem}
-.info-banner{background:rgba(56,189,248,.07);border:1px solid rgba(56,189,248,.22);
-  border-radius:10px;padding:.55rem 1rem;font-size:.75rem;color:#7dd3fc;
-  margin-bottom:.9rem;text-align:center}
-.empty-state{text-align:center;padding:3rem 1rem;color:#6e7681}
-.empty-state .ei{font-size:2.5rem;margin-bottom:.5rem}
-.divider{border:none;border-top:1px solid #21262d;margin:.8rem 0}
+/* SECTOR LABEL */
+.sector-label{font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#374151;margin-bottom:4px}
 
-/* ── Streamlit widget overrides ── */
-.stSlider > div > div > div > div{background:#10b981!important}
-div[data-testid="stButton"] button{
-  width:100%!important;
-  background:linear-gradient(135deg,#10b981,#059669)!important;
-  color:#fff!important;border:none!important;border-radius:10px!important;
-  font-weight:700!important;font-size:.9rem!important;padding:.55rem!important;
-}
-div[data-testid="stButton"] button:hover{
-  transform:translateY(-1px)!important;
-  box-shadow:0 6px 20px rgba(16,185,129,.3)!important;
-}
-div[data-testid="stSelectbox"] label,
-div[data-testid="stSlider"] label,
-div[data-testid="stMultiSelect"] label{
-  font-size:.7rem!important;font-weight:700!important;
-  letter-spacing:.1em!important;text-transform:uppercase!important;color:#6e7681!important;
-}
-/* Nasconde label vuota degli slider (usiamo HTML personalizzato) */
+/* CARD */
+.card{background:#0f1419;border:1px solid #1a2030;border-radius:16px;padding:1rem 1.1rem .95rem;margin-bottom:.75rem;position:relative;overflow:hidden;transition:border-color .2s,transform .15s,box-shadow .2s}
+.card:hover{border-color:rgba(16,185,129,.5);transform:translateY(-1px);box-shadow:0 8px 28px rgba(16,185,129,.07)}
+.card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#10b981 0%,#059669 50%,#10b981 100%);background-size:100% 200%;animation:bscroll 3s ease infinite;border-radius:16px 0 0 16px}
+@keyframes bscroll{0%,100%{background-position:0% 0%}50%{background-position:0% 100%}}
+.card-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.5rem}
+.ticker{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:700;color:#fff;letter-spacing:-.5px;line-height:1}
+.company-name{font-size:.68rem;color:#374151;margin-top:2px}
+.price-pill{font-family:'JetBrains Mono',monospace;font-size:.92rem;font-weight:600;color:#10b981;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:4px 10px;white-space:nowrap;flex-shrink:0}
+.role-row{display:flex;align-items:center;gap:7px;margin-bottom:.5rem}
+.role-pill{font-family:'JetBrains Mono',monospace;font-size:.76rem;font-weight:700;color:#0a0f14;background:#fbbf24;border-radius:6px;padding:2px 9px;letter-spacing:.05em;text-transform:uppercase;flex-shrink:0}
+.role-full{font-size:.7rem;color:#374151}
+.badges{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:.55rem}
+.badge{font-size:.63rem;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.b-mkt{background:#0a0f14;color:#4b5563;border:1px solid #1a2030}
+.value-row{display:flex;align-items:center;gap:10px;margin-bottom:.6rem;padding:.5rem .7rem;background:#080c10;border-radius:10px}
+.v-dot{width:7px;height:7px;background:#10b981;border-radius:50%;flex-shrink:0;box-shadow:0 0 7px rgba(16,185,129,.55)}
+.v-amount{font-family:'JetBrains Mono',monospace;font-size:1.2rem;font-weight:700;color:#10b981}
+.v-detail{font-size:.66rem;color:#1f2937;margin-top:1px}
+.dates-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:.5rem}
+.date-box{background:#080c10;border:1px solid #111822;border-radius:10px;padding:.4rem .65rem}
+.date-lbl{font-size:.57rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#1f2937;margin-bottom:3px;display:flex;align-items:center;gap:4px}
+.date-val{font-family:'JetBrains Mono',monospace;font-size:.73rem;font-weight:600;color:#c9d1d9}
+.date-sub{font-size:.6rem;color:#1f2937;margin-top:2px}
+.fresh-badge{font-size:.56rem;font-weight:700;color:#10b981;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.25);border-radius:4px;padding:1px 4px;letter-spacing:.06em}
+.insider-row{display:flex;align-items:center;gap:6px;font-size:.7rem;color:#1f2937;padding-top:.35rem;border-top:1px solid #0f1419}
+.insider-name{color:#374151}
+
+/* BANNERS */
+.stale-banner{background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:.5rem 1rem;font-size:.73rem;color:#fbbf24;margin-bottom:.8rem;text-align:center}
+.error-banner{background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.18);border-radius:10px;padding:.5rem 1rem;font-size:.71rem;color:#fca5a5;margin-bottom:.8rem}
+.empty-state{text-align:center;padding:2.8rem 1rem;color:#1f2937}
+.empty-state .ei{font-size:2.2rem;margin-bottom:.6rem}
+.empty-state p{font-size:.8rem;line-height:1.7;color:#374151}
+.hr{border:none;border-top:1px solid #0f1419;margin:.5rem 0 .8rem}
+
+/* STREAMLIT OVERRIDES */
+.stSlider>div>div>div>div{background:#10b981!important}
 div[data-testid="stSlider"] label{display:none!important}
+div[data-testid="stButton"] button{width:100%!important;background:linear-gradient(135deg,#10b981,#059669)!important;color:#fff!important;border:none!important;border-radius:10px!important;font-weight:700!important;font-size:.86rem!important;padding:.5rem!important;letter-spacing:.02em!important;transition:all .15s!important}
+div[data-testid="stButton"] button:hover{transform:translateY(-1px)!important;box-shadow:0 6px 20px rgba(16,185,129,.28)!important}
+div[data-testid="stSelectbox"]>label,div[data-testid="stMultiSelect"]>label{font-size:.6rem!important;font-weight:700!important;letter-spacing:.1em!important;text-transform:uppercase!important;color:#374151!important}
 </style>
 """, unsafe_allow_html=True)
 
-# ── CONSTANTS ─────────────────────────────────────────────────
+# ─── COSTANTI ─────────────────────────────────────────────────────────────────
 CACHE_FILE = "last_known_data.json"
-
 HEADERS_BROWSER = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
-
-CLEVEL_KW = [
-    "chief executive","ceo","chief financial","cfo",
-    "chief operating","coo","chairman","cob",
-    "general counsel","gc","vice president","vp",
-    "president","pres","chief ","officer",
-]
+CLEVEL_KW  = ["chief executive","ceo","chief financial","cfo","chief operating","coo","chairman","cob","general counsel","gc","vice president","vp","president","pres","chief ","officer"]
 EXCLUDE_KW = ["director","10% owner","beneficial owner"]
-
 SECTOR_THEME = {
-    "Technology":              ("#818cf8","rgba(99,102,241,.1)","rgba(99,102,241,.28)"),
-    "Healthcare":              ("#34d399","rgba(52,211,153,.1)","rgba(52,211,153,.28)"),
-    "Financials":              ("#60a5fa","rgba(96,165,250,.1)","rgba(96,165,250,.28)"),
-    "Financial Services":      ("#60a5fa","rgba(96,165,250,.1)","rgba(96,165,250,.28)"),
-    "Energy":                  ("#fb923c","rgba(251,146,60,.1)","rgba(251,146,60,.28)"),
-    "Consumer Cyclical":       ("#f472b6","rgba(244,114,182,.1)","rgba(244,114,182,.28)"),
-    "Consumer Defensive":      ("#f9a8d4","rgba(249,168,212,.1)","rgba(249,168,212,.28)"),
-    "Industrials":             ("#a78bfa","rgba(167,139,250,.1)","rgba(167,139,250,.28)"),
-    "Basic Materials":         ("#4ade80","rgba(74,222,128,.1)","rgba(74,222,128,.28)"),
-    "Utilities":               ("#facc15","rgba(250,204,21,.1)","rgba(250,204,21,.28)"),
-    "Real Estate":             ("#f87171","rgba(248,113,113,.1)","rgba(248,113,113,.28)"),
-    "Communication Services":  ("#38bdf8","rgba(56,189,248,.1)","rgba(56,189,248,.28)"),
+    "Technology":("#818cf8","rgba(99,102,241,.1)","rgba(99,102,241,.25)"),
+    "Healthcare":("#34d399","rgba(52,211,153,.1)","rgba(52,211,153,.25)"),
+    "Financials":("#60a5fa","rgba(96,165,250,.1)","rgba(96,165,250,.25)"),
+    "Financial Services":("#60a5fa","rgba(96,165,250,.1)","rgba(96,165,250,.25)"),
+    "Energy":("#fb923c","rgba(251,146,60,.1)","rgba(251,146,60,.25)"),
+    "Consumer Cyclical":("#f472b6","rgba(244,114,182,.1)","rgba(244,114,182,.25)"),
+    "Consumer Defensive":("#f9a8d4","rgba(249,168,212,.1)","rgba(249,168,212,.25)"),
+    "Industrials":("#a78bfa","rgba(167,139,250,.1)","rgba(167,139,250,.25)"),
+    "Basic Materials":("#4ade80","rgba(74,222,128,.1)","rgba(74,222,128,.25)"),
+    "Utilities":("#facc15","rgba(250,204,21,.1)","rgba(250,204,21,.25)"),
+    "Real Estate":("#f87171","rgba(248,113,113,.1)","rgba(248,113,113,.25)"),
+    "Communication Services":("#38bdf8","rgba(56,189,248,.1)","rgba(56,189,248,.25)"),
 }
+REFRESH_OPTIONS = {"5 min":300,"10 min":600,"15 min":900,"30 min":1800}
 
-# Opzioni auto-refresh: (label, secondi)
-REFRESH_OPTIONS = {
-    "5 minuti":  300,
-    "10 minuti": 600,
-    "15 minuti": 900,
-    "30 minuti": 1800,
-}
-
-# ── GIORNI LAVORATIVI ─────────────────────────────────────────
-def business_days_ago(n: int) -> datetime:
-    date    = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    counted = 0
-    while counted < n:
-        date -= timedelta(days=1)
-        if date.weekday() < 5:
-            counted += 1
-    return date
-
-# ── ROLE EXTRACTOR ────────────────────────────────────────────
+# ─── ROLE EXTRACTOR (invariato) ────────────────────────────────────────────────
 _ROLE_MAP = [
-    ("CEO",       ["chief executive officer","chief executive","ceo"]),
-    ("CFO",       ["chief financial officer","chief financial","cfo"]),
-    ("COO",       ["chief operating officer","chief operating","coo"]),
-    ("CTO",       ["chief technology officer","chief technology","cto"]),
-    ("CMO",       ["chief medical officer","chief medical","cmo"]),
-    ("CSO",       ["chief scientific officer","chief scientific","cso"]),
-    ("CLO",       ["chief legal officer","chief legal","clo"]),
-    ("CAO",       ["chief accounting officer","chief accounting","cao"]),
-    ("CBO",       ["chief business officer","chief business","cbo"]),
-    ("CHRO",      ["chief human resources","chief hr","chro"]),
-    ("COB",       ["chairman of the board","chairman","cob"]),
-    ("Pres",      ["president"]),
-    ("GC",        ["general counsel"]),
-    ("EVP",       ["executive vice president","evp"]),
-    ("SVP",       ["senior vice president","svp"]),
-    ("VP",        ["vice president","vp"]),
-    ("Treasurer", ["treasurer"]),
-    ("Secretary", ["secretary"]),
-    ("Officer",   ["officer"]),
+    ("CEO",["chief executive officer","chief executive","ceo"]),
+    ("CFO",["chief financial officer","chief financial","cfo"]),
+    ("COO",["chief operating officer","chief operating","coo"]),
+    ("CTO",["chief technology officer","chief technology","cto"]),
+    ("CMO",["chief medical officer","chief medical","cmo"]),
+    ("CSO",["chief scientific officer","chief scientific","cso"]),
+    ("CLO",["chief legal officer","chief legal","clo"]),
+    ("CAO",["chief accounting officer","chief accounting","cao"]),
+    ("CBO",["chief business officer","chief business","cbo"]),
+    ("CHRO",["chief human resources","chief hr","chro"]),
+    ("COB",["chairman of the board","chairman","cob"]),
+    ("Pres",["president"]),("GC",["general counsel"]),
+    ("EVP",["executive vice president","evp"]),
+    ("SVP",["senior vice president","svp"]),
+    ("VP",["vice president","vp"]),
+    ("Treasurer",["treasurer"]),("Secretary",["secretary"]),("Officer",["officer"]),
 ]
-
-def extract_role(title: str) -> tuple:
-    if not title or not title.strip():
-        return "—", "—"
+def extract_role(title):
+    if not title or not title.strip(): return "—","—"
     tl = title.lower().strip()
-    for abbr, keywords in _ROLE_MAP:
-        if any(kw in tl for kw in keywords):
-            return abbr, title.strip()
-    return title.strip()[:8].upper(), title.strip()
+    for abbr,kws in _ROLE_MAP:
+        if any(k in tl for k in kws): return abbr,title.strip()
+    return title.strip()[:8].upper(),title.strip()
 
-# ── HELPERS ───────────────────────────────────────────────────
-def is_clevel(title: str) -> bool:
-    if not isinstance(title, str) or not title.strip():
-        return False
+# ─── HELPERS ──────────────────────────────────────────────────────────────────
+def is_clevel(title):
+    if not isinstance(title,str) or not title.strip(): return False
     tl = title.lower()
-    if not any(k in tl for k in CLEVEL_KW):
-        return False
+    if not any(k in tl for k in CLEVEL_KW): return False
     if any(k in tl for k in EXCLUDE_KW):
-        return any(k in tl for k in [
-            "ceo","cfo","coo","cob","president","chairman",
-            "general counsel","vice president",
-            "chief executive","chief financial","chief operating",
-        ])
+        return any(k in tl for k in ["ceo","cfo","coo","cob","president","chairman","general counsel","vice president","chief executive","chief financial","chief operating"])
     return True
 
-def _oi_parse_num(s: str) -> str:
-    return re.sub(r"[$,\s+]", "", s.strip())
-
-def clean_num(s) -> float:
-    try:   return float(re.sub(r"[^\d.]", "", str(s)) or "0")
+def _oi_parse_num(s): return re.sub(r"[$,\s+]","",s.strip())
+def clean_num(s):
+    try: return float(re.sub(r"[^\d.]","",str(s)) or "0")
     except: return 0.0
-
-def fmt_usd(v: float) -> str:
-    if v >= 1_000_000: return f"${v/1_000_000:.2f}M"
-    if v >= 1_000:     return f"${v/1_000:.0f}K"
+def fmt_usd(v):
+    if v>=1_000_000: return f"${v/1_000_000:.2f}M"
+    if v>=1_000:     return f"${v/1_000:.0f}K"
     return f"${v:.0f}"
+def sector_style(s):
+    for k,v in SECTOR_THEME.items():
+        if k.lower() in s.lower(): return v
+    return "#6b7280","rgba(107,114,128,.1)","rgba(107,114,128,.25)"
+def days_ago_label(ds):
+    try:
+        diff=(datetime.utcnow().date()-datetime.strptime(ds,"%Y-%m-%d").date()).days
+        return "Oggi" if diff==0 else ("Ieri" if diff==1 else f"{diff}gg fa")
+    except: return ""
+def is_fresh(ds):
+    try: return (datetime.utcnow().date()-datetime.strptime(ds,"%Y-%m-%d").date()).days<=1
+    except: return False
 
-def sector_style(sector: str) -> tuple:
-    for k, v in SECTOR_THEME.items():
-        if k.lower() in sector.lower(): return v
-    return ("#94a3b8","rgba(148,163,184,.1)","rgba(148,163,184,.28)")
-
-def fmt_countdown(seconds: int) -> str:
-    m, s = divmod(max(0, seconds), 60)
-    return f"{m:02d}:{s:02d}"
-
-# ── FETCH CON RETRY ───────────────────────────────────────────
-def oi_safe_fetch(url: str, retries: int = 3, delay: int = 4):
-    for attempt in range(1, retries + 1):
+# ─── FETCH CON RETRY (invariato) ──────────────────────────────────────────────
+def oi_safe_fetch(url, retries=3, delay=4):
+    for attempt in range(1,retries+1):
         try:
-            r = requests.get(url, headers=HEADERS_BROWSER, timeout=20)
-            if r.status_code == 200:
-                return r
-        except Exception:
-            pass
-        if attempt < retries:
-            time.sleep(delay * attempt)
+            r = requests.get(url,headers=HEADERS_BROWSER,timeout=20)
+            if r.status_code==200: return r
+        except: pass
+        if attempt<retries: time.sleep(delay*attempt)
     return None
 
-# ── COLUMN DETECTION ─────────────────────────────────────────
-def _detect_columns(header_row) -> dict:
-    cols = {}
-    for i, th in enumerate(header_row.find_all(["th", "td"])):
-        txt = th.get_text(strip=True).lower()
-        if "trade" in txt and "date" in txt and "trade_date" not in cols:
-            cols["trade_date"] = i
-        elif "filing" in txt and "date" in txt and "filing_date" not in cols:
-            cols["filing_date"] = i
-        elif "ticker" in txt and "ticker" not in cols:
-            cols["ticker"] = i
-        elif "company" in txt and "company" not in cols:
-            cols["company"] = i
-        elif "insider" in txt and "insider" not in cols:
-            cols["insider"] = i
-        elif "title" in txt and "title" not in cols:
-            cols["title"] = i
-        elif ("trade type" in txt or txt == "type") and "type" not in cols:
-            cols["type"] = i
-        elif "price" in txt and "price" not in cols:
-            cols["price"] = i
-        elif "qty" in txt and "qty" not in cols:
-            cols["qty"] = i
-        elif "value" in txt and "value" not in cols:
-            cols["value"] = i
-    defaults = {
-        "filing_date": 1, "trade_date": 2, "ticker": 3, "company": 4,
-        "insider": 5, "title": 6, "type": 7, "price": 8, "qty": 9, "value": 13,
-    }
-    for k, v in defaults.items():
-        if k not in cols:
-            cols[k] = v
+# ─── COLUMN DETECTION (invariato) ─────────────────────────────────────────────
+def _detect_columns(header_row):
+    cols={}
+    for i,th in enumerate(header_row.find_all(["th","td"])):
+        txt=th.get_text(strip=True).lower()
+        if "trade" in txt and "date" in txt and "trade_date" not in cols: cols["trade_date"]=i
+        elif "filing" in txt and "date" in txt and "filing_date" not in cols: cols["filing_date"]=i
+        elif "ticker" in txt and "ticker" not in cols: cols["ticker"]=i
+        elif "company" in txt and "company" not in cols: cols["company"]=i
+        elif "insider" in txt and "insider" not in cols: cols["insider"]=i
+        elif "title" in txt and "title" not in cols: cols["title"]=i
+        elif ("trade type" in txt or txt=="type") and "type" not in cols: cols["type"]=i
+        elif "price" in txt and "price" not in cols: cols["price"]=i
+        elif "qty" in txt and "qty" not in cols: cols["qty"]=i
+        elif "value" in txt and "value" not in cols: cols["value"]=i
+    for k,v in {"filing_date":1,"trade_date":2,"ticker":3,"company":4,"insider":5,"title":6,"type":7,"price":8,"qty":9,"value":13}.items():
+        if k not in cols: cols[k]=v
     return cols
 
 def _find_table(soup):
-    for tbl in soup.find_all("table"):
-        cls = " ".join(tbl.get("class", []))
-        if "tinytable" in cls or "sortable" in cls:
-            return tbl
-    tables = soup.find_all("table")
-    return max(tables, key=lambda t: len(t.find_all("tr")), default=None) if tables else None
+    for t in soup.find_all("table"):
+        if any(c in " ".join(t.get("class",[])) for c in ["tinytable","sortable"]): return t
+    tables=soup.find_all("table")
+    return max(tables,key=lambda t:len(t.find_all("tr")),default=None) if tables else None
 
-# ── PARSER TABELLA ────────────────────────────────────────────
-def _parse_table(soup, cutoff: datetime) -> list:
-    table = _find_table(soup)
-    if not table:
-        return []
-    all_rows = table.find_all("tr")
-    if not all_rows:
-        return []
-    cols    = _detect_columns(all_rows[0])
-    results = []
-
+# ─── PARSER TABELLA (invariato — cuore dell'estrazione) ───────────────────────
+def _parse_table(soup, cutoff):
+    table=_find_table(soup)
+    if not table: return []
+    all_rows=table.find_all("tr")
+    if not all_rows: return []
+    cols=_detect_columns(all_rows[0])
+    results=[]
     for tr in all_rows[1:]:
-        tds = tr.find_all("td")
-        if len(tds) < 8:
-            continue
+        tds=tr.find_all("td")
+        if len(tds)<8: continue
         try:
-            def get(key, default=""):
-                idx = cols.get(key, -1)
-                if idx < 0 or idx >= len(tds): return default
+            def get(key,default=""):
+                idx=cols.get(key,-1)
+                if idx<0 or idx>=len(tds): return default
                 return tds[idx].get_text(strip=True)
-
-            ttype     = get("type")
-            ttype_key = ttype.split(" ")[0].upper() if ttype else ""
-            if ttype_key != "P":
-                continue
-
-            trade_raw   = get("trade_date")
-            filing_raw  = get("filing_date")
-            trade_dt_s  = trade_raw[:10]  if trade_raw  else ""
-            filing_dt_s = filing_raw[:10] if filing_raw else ""
-            trade_time  = trade_raw[10:].strip()  if len(trade_raw)  > 10 else ""
-            filing_time = filing_raw[10:].strip() if len(filing_raw) > 10 else ""
-
+            ttype=get("type")
+            if (ttype.split(" ")[0].upper() if ttype else "")!="P": continue
+            trade_raw=get("trade_date"); filing_raw=get("filing_date")
+            trade_dt_s=trade_raw[:10] if trade_raw else ""
+            filing_dt_s=filing_raw[:10] if filing_raw else ""
+            trade_time=trade_raw[10:].strip() if len(trade_raw)>10 else ""
+            filing_time=filing_raw[10:].strip() if len(filing_raw)>10 else ""
             try:
-                if cutoff and datetime.strptime(trade_dt_s, "%Y-%m-%d") < cutoff:
-                    continue
-            except ValueError:
-                continue
-
-            ticker_td = tds[cols.get("ticker", 3)]
-            ticker_a  = ticker_td.find("a")
-            ticker    = (ticker_a.get_text(strip=True) if ticker_a
-                         else ticker_td.get_text(strip=True)).upper().strip()
-            ticker    = re.sub(r"[^A-Z.]", "", ticker)
-            if not ticker or len(ticker) > 6:
-                continue
-
-            company    = tds[cols.get("company", 4)].get_text(strip=True)
-            insider_td = tds[cols.get("insider", 5)]
-            insider_a  = insider_td.find("a")
-            insider    = (insider_a.get_text(strip=True) if insider_a
-                          else insider_td.get_text(strip=True)).strip()
-            title = get("title")
-            if not is_clevel(title):
-                continue
-
-            price = clean_num(_oi_parse_num(get("price", "0")))
-            qty   = clean_num(_oi_parse_num(get("qty",   "0")))
-            val_s = _oi_parse_num(get("value", "0"))
+                if cutoff and datetime.strptime(trade_dt_s,"%Y-%m-%d")<cutoff: continue
+            except ValueError: continue
+            ticker_td=tds[cols.get("ticker",3)]
+            ticker_a=ticker_td.find("a")
+            ticker=re.sub(r"[^A-Z.]","",((ticker_a.get_text(strip=True) if ticker_a else ticker_td.get_text(strip=True)).upper().strip()))
+            if not ticker or len(ticker)>6: continue
+            company=tds[cols.get("company",4)].get_text(strip=True)
+            insider_td=tds[cols.get("insider",5)]; insider_a=insider_td.find("a")
+            insider=(insider_a.get_text(strip=True) if insider_a else insider_td.get_text(strip=True)).strip()
+            title=get("title")
+            if not is_clevel(title): continue
+            price=clean_num(_oi_parse_num(get("price","0")))
+            qty=clean_num(_oi_parse_num(get("qty","0")))
+            val_s=_oi_parse_num(get("value","0"))
             try:
-                value = float(val_s) if val_s else abs(qty) * price
-                if value <= 0: value = abs(qty) * price
-            except Exception:
-                value = abs(qty) * price
-
-            if qty == 0 or price <= 0:
-                continue
-
-            role_abbr, role_full = extract_role(title)
-            results.append({
-                "ticker":      ticker,
-                "company":     company,
-                "insider":     insider,
-                "title":       title,
-                "role_abbr":   role_abbr,
-                "role_full":   role_full,
-                "price":       price,
-                "qty":         f"{int(qty):,}",
-                "value":       value,
-                "trade_date":  trade_dt_s,
-                "trade_time":  trade_time,
-                "filing_date": filing_dt_s,
-                "filing_time": filing_time,
-            })
-        except Exception:
-            continue
+                value=float(val_s) if val_s else abs(qty)*price
+                if value<=0: value=abs(qty)*price
+            except: value=abs(qty)*price
+            if qty==0 or price<=0: continue
+            role_abbr,role_full=extract_role(title)
+            results.append({"ticker":ticker,"company":company,"insider":insider,"title":title,"role_abbr":role_abbr,"role_full":role_full,"price":price,"qty":f"{int(qty):,}","value":value,"trade_date":trade_dt_s,"trade_time":trade_time,"filing_date":filing_dt_s,"filing_time":filing_time})
+        except: continue
     return results
 
-# ── URL BUILDER ───────────────────────────────────────────────
-def build_url(vl: int, vh: int, days: int = 30) -> str:
-    vh_s = str(vh) if vh > 0 else ""
-    return (
-        f"http://openinsider.com/screener?"
-        f"s=&o=&pl=&ph=&ll=&lh="
-        f"&fd={days}&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago="
-        f"&xp=1&xs=0&xa=0&xd=0&xg=0&xf=0&xm=0&xx=0&xo=0"
-        f"&vl={vl}&vh={vh_s}"
-        f"&ocl=&och=&sic1=-1&sicl=100&sich=9999"
-        f"&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h="
-        f"&isofficer=1&iscob=1&isceo=1&ispres=1&iscoo=1&iscfo=1&isgc=1&isvp=1"
-        f"&isdirector=0&is10percent=0&isother=0"
-        f"&sortcol=0&cnt=200&Action=Submit"
-    )
+# ─── URL BUILDER (invariato) ──────────────────────────────────────────────────
+def build_url(vl,vh,days=30):
+    vh_s=str(vh) if vh>0 else ""
+    return (f"http://openinsider.com/screener?s=&o=&pl=&ph=&ll=&lh=&fd={days}&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1&xs=0&xa=0&xd=0&xg=0&xf=0&xm=0&xx=0&xo=0&vl={vl}&vh={vh_s}&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&isofficer=1&iscob=1&isceo=1&ispres=1&iscoo=1&iscfo=1&isgc=1&isvp=1&isdirector=0&is10percent=0&isother=0&sortcol=0&cnt=200&Action=Submit")
 
-# ── FETCH (cached 5 min) ──────────────────────────────────────
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_trades(vl: int, vh: int) -> tuple:
-    url = build_url(vl, vh)
-    r   = oi_safe_fetch(url)
-    if r is None:
-        return [], "OpenInsider non raggiungibile (3 tentativi falliti)"
-    soup   = BeautifulSoup(r.text, "html.parser")
-    cutoff = datetime.now() - timedelta(days=31)
-    return _parse_table(soup, cutoff), ""
+@st.cache_data(ttl=300,show_spinner=False)
+def fetch_trades(vl,vh):
+    r=oi_safe_fetch(build_url(vl,vh))
+    if r is None: return [],"OpenInsider non raggiungibile (3 tentativi falliti)"
+    return _parse_table(BeautifulSoup(r.text,"html.parser"),datetime.now()-timedelta(days=31)),""
 
-# ── YFINANCE ─────────────────────────────────────────────────
-@st.cache_data(ttl=600, show_spinner=False)
-def enrich(ticker: str) -> dict:
+@st.cache_data(ttl=600,show_spinner=False)
+def enrich(ticker):
     try:
         import yfinance as yf
-        info  = yf.Ticker(ticker).info
-        price = (info.get("currentPrice") or info.get("regularMarketPrice")
-                 or info.get("previousClose", 0))
-        return {
-            "price":    round(float(price), 2) if price else 0.0,
-            "exchange": (info.get("exchange") or info.get("fullExchangeName") or "—").upper(),
-            "sector":   info.get("sector") or info.get("sectorDisp") or "—",
-        }
-    except:
-        return {"price": 0.0, "exchange": "—", "sector": "—"}
+        info=yf.Ticker(ticker).info
+        price=info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose",0)
+        return {"price":round(float(price),2) if price else 0.0,"exchange":(info.get("exchange") or info.get("fullExchangeName") or "—").upper(),"sector":info.get("sector") or info.get("sectorDisp") or "—"}
+    except: return {"price":0.0,"exchange":"—","sector":"—"}
 
-# ── DISK CACHE ────────────────────────────────────────────────
 def save_disk(trades):
     try:
-        with open(CACHE_FILE, "w") as f:
-            json.dump({"trades": trades, "at": datetime.utcnow().isoformat()}, f)
+        with open(CACHE_FILE,"w") as f: json.dump({"trades":trades,"at":datetime.utcnow().isoformat()},f)
     except: pass
 
 def load_disk():
     try:
-        with open(CACHE_FILE) as f: d = json.load(f)
-        return d.get("trades", []), d.get("at", "")
-    except: return [], ""
+        with open(CACHE_FILE) as f: d=json.load(f)
+        return d.get("trades",[]),d.get("at","")
+    except: return [],""
 
-# ── AUTO-REFRESH JS ───────────────────────────────────────────
-def inject_autorefresh(interval_seconds: int):
-    """
-    Ricarica la pagina ogni `interval_seconds` secondi via JavaScript.
-    Mostra anche un countdown visivo che conta alla rovescia.
-    """
-    ms = interval_seconds * 1000
+# ─── AUTO-REFRESH ─────────────────────────────────────────────────────────────
+def inject_autorefresh(secs):
+    label=next(k for k,v in REFRESH_OPTIONS.items() if v==secs)
     st.markdown(f"""
-<div class="refresh-bar">
-  <div class="refresh-left">
-    <div class="refresh-dot-on"></div>
+<div class="ar-bar">
+  <div class="ar-left">
+    <div class="ar-dot-on"></div>
     <div>
-      <div class="refresh-label">Aggiornamento automatico attivo</div>
-      <div class="refresh-sub">Controlla nuovi acquisti ogni {interval_seconds//60} min</div>
+      <div class="ar-title">Live &middot; ogni {label}</div>
+      <div class="ar-sub">Prossimo refresh: <span id="ar_cd" style="color:#10b981;font-family:'JetBrains Mono',monospace">--:--</span></div>
     </div>
   </div>
-  <div class="refresh-countdown" id="rcd">--:--</div>
 </div>
 <script>
 (function(){{
-  var total = {interval_seconds};
-  var left  = total;
-  function pad(n){{return String(n).padStart(2,'0');}}
+  var t={secs},left=t;
+  function p(n){{return String(n).padStart(2,'0');}}
   function tick(){{
-    var m = Math.floor(left/60), s = left%60;
-    var el = document.getElementById('rcd');
-    if(el) el.textContent = pad(m)+':'+pad(s);
-    if(left <= 0){{ window.location.reload(); return; }}
+    var el=document.getElementById('ar_cd');
+    if(el) el.textContent=p(Math.floor(left/60))+':'+p(left%60);
+    if(left<=0){{window.location.reload();return;}}
     left--;
   }}
-  tick();
-  setInterval(tick, 1000);
-  setTimeout(function(){{ window.location.reload(); }}, {ms});
+  tick(); setInterval(tick,1000);
+  setTimeout(function(){{window.location.reload();}},{secs*1000});
 }})();
-</script>
-""", unsafe_allow_html=True)
+</script>""", unsafe_allow_html=True)
 
 def inject_autorefresh_off():
     st.markdown("""
-<div class="refresh-bar">
-  <div class="refresh-left">
-    <div class="refresh-dot-off"></div>
+<div class="ar-bar">
+  <div class="ar-left">
+    <div class="ar-dot-off"></div>
     <div>
-      <div class="refresh-label" style="color:#6e7681">Aggiornamento automatico disattivato</div>
-      <div class="refresh-sub">Premi Aggiorna per vedere i nuovi acquisti</div>
+      <div class="ar-title" style="color:#1f2937">Aggiornamento automatico disattivato</div>
+      <div class="ar-sub">Premi Aggiorna per ricaricare</div>
     </div>
   </div>
-</div>
-""", unsafe_allow_html=True)
+</div>""", unsafe_allow_html=True)
 
-
-# ── PWA MANIFEST + ICONA ──────────────────────────────────────
-# Icona OS Insider (192×192 e 512×512 PNG, base64)
-_ICON_192 = "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"
-_ICON_512 = "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"
-
-def inject_pwa():
-    """
-    Inietta il Web App Manifest e i meta tag Apple/Android
-    per far comparire 'OS Insider' con l'icona custom
-    quando l'utente aggiunge l'app alla schermata home.
-    Sostituisce il nome 'Streamlit' sia su iOS che Android.
-    """
-    import json
-    manifest = {
-        "name":             "OS Insider",
-        "short_name":       "OS Insider",
-        "description":      "C-Level insider purchases · SEC Form 4",
-        "start_url":        ".",
-        "display":          "standalone",
-        "background_color": "#0d1117",
-        "theme_color":      "#10b981",
-        "orientation":      "portrait",
-        "icons": [
-            {"src": f"data:image/png;base64,{_ICON_192}",
-              "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-            {"src": f"data:image/png;base64,{_ICON_512}",
-              "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
-        ]
-    }
-    manifest_b64 = __import__('base64').b64encode(
-        json.dumps(manifest).encode()
-    ).decode()
-
-    st.markdown(f"""
-<!-- PWA: OS Insider -->
-<link rel="manifest"
-      href="data:application/manifest+json;base64,{manifest_b64}">
-
-<!-- iOS Safari: nome e icona schermata home -->
-<meta name="apple-mobile-web-app-capable"          content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title"            content="OS Insider">
-<link rel="apple-touch-icon"
-      href="data:image/png;base64,{_ICON_192}">
-
-<!-- Android Chrome / browser generici -->
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="application-name"       content="OS Insider">
-<meta name="theme-color"            content="#10b981">
-""", unsafe_allow_html=True)
-
-
-# ── CARD ──────────────────────────────────────────────────────
-def render_card(t: dict, info: dict):
-    ticker   = t["ticker"]
-    price    = info.get("price", 0.0)
-    exchange = info.get("exchange", "—")
-    sector   = info.get("sector", "—")
-    sc, sbg, sbd = sector_style(sector)
-    price_str = f"${price:.2f}" if price else "—"
-    co        = (t.get("company", "") or "")
-    co        = (co[:36] + "…") if len(co) > 36 else co
-    role_abbr = t.get("role_abbr", "—")
-    role_full = t.get("role_full",  "—")
-    qty_s     = re.sub(r"[^\d,]", "", t.get("qty", ""))
-    tp_s      = f"@ ${t['price']:.2f}" if t.get("price") else ""
-
+# ─── CARD ─────────────────────────────────────────────────────────────────────
+def render_card(t, info):
+    ticker=t["ticker"]; price=info.get("price",0.0)
+    exchange=info.get("exchange","—"); sector=info.get("sector","—")
+    sc,sbg,sbd=sector_style(sector)
+    price_str=f"${price:.2f}" if price else "—"
+    co=(t.get("company","") or ""); co=(co[:34]+"…") if len(co)>34 else co
+    role_abbr=t.get("role_abbr","—"); role_full=t.get("role_full","—")
+    qty_s=re.sub(r"[^\d,]","",t.get("qty",""))
+    tp_s=f"@ ${t['price']:.2f}" if t.get("price") else ""
+    trade_ago=days_ago_label(t["trade_date"])
+    filing_ago=days_ago_label(t["filing_date"])
+    fresh_html='<span class="fresh-badge">NEW</span>' if is_fresh(t["filing_date"]) else ""
     st.markdown(f"""
 <div class="card">
   <div class="card-top">
-    <div>
-      <div class="ticker">{ticker}</div>
-      <div class="company-name">{co}</div>
-    </div>
+    <div><div class="ticker">{ticker}</div><div class="company-name">{co}</div></div>
     <span class="price-pill">{price_str}</span>
   </div>
   <div class="role-row">
@@ -645,144 +369,78 @@ def render_card(t: dict, info: dict):
     <span class="role-full">{role_full}</span>
   </div>
   <div class="badges">
-    <span class="badge b-market">📊 {exchange}</span>
-    <span class="badge b-sector" style="color:{sc};background:{sbg};border-color:{sbd};">{sector}</span>
+    <span class="badge b-mkt">📊 {exchange}</span>
+    <span class="badge" style="color:{sc};background:{sbg};border:1px solid {sbd};">{sector}</span>
   </div>
   <div class="value-row">
-    <span class="v-icon">🟢</span>
-    <span class="v-amount">{fmt_usd(t['value'])}</span>
-    <span class="v-detail">{qty_s} shares {tp_s}</span>
+    <div class="v-dot"></div>
+    <div>
+      <div class="v-amount">{fmt_usd(t['value'])}</div>
+      <div class="v-detail">{qty_s} azioni {tp_s}</div>
+    </div>
   </div>
   <div class="dates-grid">
     <div class="date-box">
-      <div class="date-lbl">📅 Data Acquisto</div>
+      <div class="date-lbl">🤝 Trade Date</div>
       <div class="date-val">{t['trade_date']}</div>
-      <div class="date-time">{t['trade_time']}</div>
+      <div class="date-sub">{trade_ago}{(' · '+t['trade_time']) if t['trade_time'] else ''}</div>
     </div>
     <div class="date-box">
-      <div class="date-lbl">🕒 Depositato SEC</div>
+      <div class="date-lbl">📋 SEC Filing {fresh_html}</div>
       <div class="date-val">{t['filing_date']}</div>
-      <div class="date-time">{t['filing_time']}</div>
+      <div class="date-sub">{filing_ago}{(' · '+t['filing_time']) if t['filing_time'] else ''}</div>
     </div>
   </div>
-  <div class="insider-row"><span>👤</span><span>{t['insider']}</span></div>
+  <div class="insider-row"><span>👤</span><span class="insider-name">{t['insider']}</span></div>
 </div>""", unsafe_allow_html=True)
 
-# ── MAIN ──────────────────────────────────────────────────────
+# ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
-    inject_pwa()
-
-    # Header
     st.markdown("""
 <div class="app-header">
-  <h1>📈 Insider Buy Tracker</h1>
-  <div class="sub">
-    <span class="pulse"></span>Acquisti C-Level · OpenInsider · SEC Form 4
-  </div>
+  <div class="header-glow"></div>
+  <h1>OS <span>OpenInSider</span></h1>
+  <div class="header-sub"><div class="live-dot"></div>C-Level Purchases &middot; SEC Form 4</div>
 </div>""", unsafe_allow_html=True)
 
-    # ═══════════════════════════════════════════════════════
-    # PANNELLO FILTRI
-    # ═══════════════════════════════════════════════════════
-    st.markdown("""
-<div class="filter-panel">
-  <div class="filter-panel-title">⚙️ Filtri di ricerca</div>
-""", unsafe_allow_html=True)
+    # Finestra fissa 2 giorni
+    cutoff_2d  = datetime.utcnow() - timedelta(days=2)
+    cutoff_str = cutoff_2d.strftime("%Y-%m-%d")
 
-    # ── FILTRO 1: Valore minimo ────────────────────────────
-    st.markdown("""
-  <div class="filter-block">
-    <div class="filter-name">💰 Valore minimo dell'acquisto</div>
-    <div class="filter-desc">
-      Soglia minima in migliaia di dollari ($K) del singolo acquisto.
-      Un CEO che compra azioni per meno di questa cifra non viene mostrato.
-      Il minimo consigliato è <b>$20K</b> per escludere operazioni simboliche.
-    </div>
-""", unsafe_allow_html=True)
-    vl = st.slider("vl", 20, 500, 20, 10, label_visibility="collapsed",
-                   format="$%dK")
-    st.markdown(f'<div class="filter-value">Soglia attiva: ${vl}K ({fmt_usd(vl*1000)})</div>',
-                unsafe_allow_html=True)
+    # Filtri min/max valore
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown('<div class="fc-label">💰 Valore minimo ($K)</div>', unsafe_allow_html=True)
+        vl = st.slider("vl", 15, 500, 15, 5, label_visibility="collapsed", format="$%dK")
+        st.markdown(f'<div class="fc-wrap"><div class="fc-label">Soglia attiva</div><div class="fc-value">${vl}K</div><div class="fc-sub">min. consigliato $15K</div></div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown('<div class="fc-label">🔝 Valore massimo ($K)</div>', unsafe_allow_html=True)
+        vh = st.slider("vh", 0, 10_000, 1_000, 100, label_visibility="collapsed", format="$%dK")
+        vh_lbl = "No limite" if vh==0 else f"${vh}K"
+        st.markdown(f'<div class="fc-wrap"><div class="fc-label">Soglia attiva</div><div class="fc-value">{vh_lbl}</div><div class="fc-sub">0 = nessun limite</div></div>', unsafe_allow_html=True)
 
-    # ── FILTRO 2: Valore massimo ───────────────────────────
-    st.markdown("""
-  </div>
-  <div class="filter-block">
-    <div class="filter-name">🔝 Valore massimo dell'acquisto</div>
-    <div class="filter-desc">
-      Limite superiore per escludere acquisti straordinari che potrebbero
-      distorcere l'analisi (es. un CEO che compra $50M di azioni è un evento
-      eccezionale, non una tendenza). Imposta <b>0</b> per non applicare limiti.
-    </div>
-""", unsafe_allow_html=True)
-    vh = st.slider("vh", 0, 10_000, 1_000, 100, label_visibility="collapsed",
-                   format="$%dK")
-    vh_label = "Nessun limite" if vh == 0 else f"Fino a ${vh}K ({fmt_usd(vh*1000)})"
-    st.markdown(f'<div class="filter-value">Soglia attiva: {vh_label}</div>',
-                unsafe_allow_html=True)
+    st.markdown(f'<div class="window-badge"><span style="font-size:1rem">📅</span><div class="window-text">Acquisti C-Level negli ultimi <b>2 giorni</b> &middot; dal <b>{cutoff_2d.strftime("%d %b %Y")}</b> ad oggi</div></div>', unsafe_allow_html=True)
 
-    # ── FILTRO 3: Giorni lavorativi ────────────────────────
-    st.markdown("""
-  </div>
-  <div class="filter-block">
-    <div class="filter-name">📅 Finestra temporale</div>
-    <div class="filter-desc">
-      Quanti <b>giorni lavorativi</b> (lunedì–venerdì) guardare indietro.
-      Gli insider hanno fino a 2 giorni lavorativi per depositare il Form 4
-      alla SEC dopo un acquisto — impostare 7 giorni garantisce di non
-      perdere nessun filing recente.
-    </div>
-""", unsafe_allow_html=True)
-    bdays       = st.slider("bdays", 1, 7, 7, 1, label_visibility="collapsed")
-    cutoff_bday = business_days_ago(bdays)
-    st.markdown(
-        f'<div class="filter-value">'
-        f'Dal {cutoff_bday.strftime("%d %b %Y")} ad oggi '
-        f'({bdays} giorno{"" if bdays==1 else "i"} lavorativo{"" if bdays==1 else "i"})'
-        f'</div>',
-        unsafe_allow_html=True)
+    if st.button("🔄 Aggiorna ora"):
+        st.cache_data.clear()
+        st.session_state.pop("show_count",None)
+        st.rerun()
 
-    st.markdown("</div></div>", unsafe_allow_html=True)  # chiude filter-panel
-
-    # ── SORT + AGGIORNA ────────────────────────────────────
-    col_s, col_b = st.columns([3, 1])
-    with col_s:
-        sort_by = st.selectbox(
-            "Ordina per",
-            ["Valore ↓", "Data Filing ↓", "Data Acquisto ↓"],
-            label_visibility="visible",
-        )
-    with col_b:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔄 Aggiorna"):
-            st.cache_data.clear()
-            st.session_state.pop("show_count", None)
-            st.rerun()
-
-    # ── AUTO-REFRESH ───────────────────────────────────────
     auto_on = st.toggle("🔁 Aggiornamento automatico", value=True)
     if auto_on:
-        interval_label = st.select_slider(
-            "Frequenza aggiornamento",
-            options=list(REFRESH_OPTIONS.keys()),
-            value="5 minuti",
-            label_visibility="visible",
-        )
+        interval_label = st.select_slider("Frequenza", options=list(REFRESH_OPTIONS.keys()), value="5 min")
         inject_autorefresh(REFRESH_OPTIONS[interval_label])
     else:
         inject_autorefresh_off()
 
-    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
-    # ── FETCH ─────────────────────────────────────────────
     prog = st.progress(0, text="⏳ Caricamento da OpenInsider…")
     trades, err = fetch_trades(vl, vh)
-    prog.progress(100, text="✅ Fatto")
-    prog.empty()
+    prog.progress(100, text="✅ Fatto"); prog.empty()
 
     using_stale, stale_ts = False, ""
-    if trades:
-        save_disk(trades)
+    if trades: save_disk(trades)
     else:
         trades, stale_ts = load_disk()
         using_stale = bool(trades)
@@ -790,112 +448,60 @@ def main():
     if err:
         st.markdown(f'<div class="error-banner">⚠️ {err}</div>', unsafe_allow_html=True)
     if using_stale:
-        st.markdown(
-            f'<div class="stale-banner">📦 Ultimi dati disponibili ({stale_ts[:16]} UTC)</div>',
-            unsafe_allow_html=True)
+        st.markdown(f'<div class="stale-banner">📦 Dati salvati ({stale_ts[:16]} UTC)</div>', unsafe_allow_html=True)
 
     if not trades:
-        st.markdown("""
-<div class="empty-state"><div class="ei">🔍</div>
-<p>Nessun acquisto C-Level trovato.<br>
-Prova a ridurre il valore minimo o premi Aggiorna.</p>
-</div>""", unsafe_allow_html=True)
+        st.markdown('<div class="empty-state"><div class="ei">🔍</div><p>Nessun acquisto C-Level trovato.<br>Riduci il valore minimo o premi Aggiorna.</p></div>', unsafe_allow_html=True)
         return
 
-    # ── FILTRO GIORNI LAVORATIVI ──────────────────────────
-    cutoff_str = cutoff_bday.strftime("%Y-%m-%d")
-    trades = [t for t in trades if t.get("trade_date", "") >= cutoff_str]
-
+    # Filtro 2 giorni
+    trades = [t for t in trades if t.get("trade_date","") >= cutoff_str]
     if not trades:
-        st.markdown(f"""
-<div class="empty-state"><div class="ei">📅</div>
-<p>Nessun acquisto negli ultimi <b>{bdays}</b> giorni lavorativi.<br>
-Aumenta i giorni o abbassa il valore minimo.</p>
-</div>""", unsafe_allow_html=True)
+        st.markdown('<div class="empty-state"><div class="ei">📅</div><p>Nessun acquisto negli ultimi 2 giorni.<br>Gli insider hanno fino a 2 giorni lavorativi<br>per depositare il Form 4 alla SEC.</p></div>', unsafe_allow_html=True)
         return
 
-    # ── ENRICHMENT yfinance (per settore/prezzo) ──────────
-    enriched_map: dict = {}
+    # Enrichment
+    enriched_map = {}
     for t in trades:
-        tk = t["ticker"]
-        if tk not in enriched_map:
-            enriched_map[tk] = enrich(tk)
+        if t["ticker"] not in enriched_map:
+            enriched_map[t["ticker"]] = enrich(t["ticker"])
 
-    # ── FILTRO SETTORE ─────────────────────────────────────
-    all_sectors = sorted({
-        enriched_map[t["ticker"]].get("sector", "—")
-        for t in trades
-        if enriched_map[t["ticker"]].get("sector", "—") not in ("—", "")
-    })
+    # Filtro settore
+    all_sectors = sorted({enriched_map[t["ticker"]].get("sector","—") for t in trades if enriched_map[t["ticker"]].get("sector","—") not in ("—","")})
     sector_filter = []
     if all_sectors:
-        st.markdown('<span style="font-size:.7rem;font-weight:700;letter-spacing:.1em;'
-                    'text-transform:uppercase;color:#6e7681;">🏭 Filtra per settore</span>',
-                    unsafe_allow_html=True)
-        sector_filter = st.multiselect(
-            "Settore",
-            options=all_sectors,
-            default=[],
-            placeholder="Tutti i settori — lascia vuoto per non filtrare",
-            label_visibility="collapsed",
-        )
-
+        st.markdown('<div class="sector-label">🏭 Filtra per settore</div>', unsafe_allow_html=True)
+        sector_filter = st.multiselect("Settore", options=all_sectors, default=[], placeholder="Tutti i settori", label_visibility="collapsed")
     if sector_filter:
-        trades = [
-            t for t in trades
-            if enriched_map[t["ticker"]].get("sector", "—") in sector_filter
-        ]
-
+        trades = [t for t in trades if enriched_map[t["ticker"]].get("sector","—") in sector_filter]
     if not trades:
-        st.markdown("""
-<div class="empty-state"><div class="ei">🏭</div>
-<p>Nessun acquisto per i settori selezionati.<br>
-Deseleziona qualche settore o abbassa il valore minimo.</p>
-</div>""", unsafe_allow_html=True)
+        st.markdown('<div class="empty-state"><div class="ei">🏭</div><p>Nessun acquisto per i settori selezionati.</p></div>', unsafe_allow_html=True)
         return
 
-    # ── SORT ─────────────────────────────────────────────
-    key_fn = {
-        "Valore ↓":         lambda x: x["value"],
-        "Data Filing ↓":    lambda x: x["filing_date"],
-        "Data Acquisto ↓":  lambda x: x["trade_date"],
-    }
-    trades = sorted(trades, key=key_fn[sort_by], reverse=True)
+    # Sort per valore decrescente
+    trades = sorted(trades, key=lambda x: x["value"], reverse=True)
 
-    # ── STATS ─────────────────────────────────────────────
+    # Stats
     total = sum(t["value"] for t in trades)
     ntick = len({t["ticker"] for t in trades})
     now_s = datetime.utcnow().strftime("%d %b %Y %H:%M")
     st.markdown(f"""
 <div class="stats-bar">
-  <div class="stat">
-    <div class="stat-n">{len(trades)}</div>
-    <div class="stat-l">Acquisti</div>
-  </div>
-  <div class="stat">
-    <div class="stat-n">{ntick}</div>
-    <div class="stat-l">Aziende</div>
-  </div>
-  <div class="stat">
-    <div class="stat-n">{fmt_usd(total)}</div>
-    <div class="stat-l">Totale</div>
-  </div>
-</div>
-<p style="text-align:center;color:#6e7681;font-size:.66rem;margin:-.4rem 0 .8rem">
-  Aggiornato {now_s} UTC · fonte openinsider.com
-</p>""", unsafe_allow_html=True)
+  <div class="stat"><div class="stat-n">{len(trades)}</div><div class="stat-l">Acquisti</div></div>
+  <div class="stat"><div class="stat-n">{ntick}</div><div class="stat-l">Aziende</div></div>
+  <div class="stat"><div class="stat-n">{fmt_usd(total)}</div><div class="stat-l">Totale</div></div>
+  <div class="stat-ts">{now_s} UTC · openinsider.com · solo C-Level · Form 4</div>
+</div>""", unsafe_allow_html=True)
 
-    # ── CARDS ─────────────────────────────────────────────
+    # Cards
     BATCH = 12
     if "show_count" not in st.session_state:
         st.session_state.show_count = BATCH
-
     for trade in trades[:st.session_state.show_count]:
         render_card(trade, enriched_map[trade["ticker"]])
-
     remaining = len(trades) - st.session_state.show_count
     if remaining > 0:
-        if st.button(f"⬇️  Carica altri {min(BATCH, remaining)}  ({remaining} rimanenti)"):
+        if st.button(f"⬇️  Carica altri {min(BATCH,remaining)}  ({remaining} rimanenti)"):
             st.session_state.show_count += BATCH
             st.rerun()
 
