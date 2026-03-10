@@ -20,132 +20,139 @@
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
-  width: 100%; height: 100%;
+  width: 100%; min-height: 100%;
   background: linear-gradient(160deg, #ffcc00, #dba800);
   display: flex; align-items: center; justify-content: center;
-  flex-direction: column; gap: 18px;
+  flex-direction: column; gap: 22px;
   font-family: system-ui, sans-serif;
+  padding: 40px 24px;
 }
 .icon {
-  width: 100px; height: 100px;
+  width: 110px; height: 110px;
   background: linear-gradient(160deg, #ffcc00, #dba800);
-  border-radius: 24px;
+  border-radius: 26px;
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 8px 32px rgba(0,0,0,0.25);
-  font-size: 3rem; font-weight: 900;
+  font-size: 3.2rem; font-weight: 900;
   color: #0f0f0f; letter-spacing: -2px;
 }
-h1 { font-size: 1.6rem; font-weight: 800; color: #0f0f0f; letter-spacing: -1px; }
-.sub { font-size: 0.82rem; color: rgba(0,0,0,0.5); }
-
-/* Box istruzioni installa */
-.install-box {
-  background: rgba(0,0,0,0.12);
-  border-radius: 16px;
-  padding: 14px 20px;
-  max-width: 280px;
+h1 {
+  font-size: 1.7rem; font-weight: 800;
+  color: #0f0f0f; letter-spacing: -0.5px;
   text-align: center;
 }
-.install-box .step {
-  font-size: 0.82rem;
-  color: #0f0f0f;
-  line-height: 1.6;
+.sub {
+  font-size: 0.82rem; color: rgba(0,0,0,0.5);
+  text-align: center;
 }
-.install-box .step b { font-weight: 800; }
 
-/* Countdown ring */
-.ring-wrap {
-  position: relative;
-  width: 64px; height: 64px;
+/* Separatore */
+.divider {
+  width: 40px; height: 3px;
+  background: rgba(0,0,0,0.15);
+  border-radius: 2px;
+}
+
+/* Box istruzioni */
+.install-box {
+  background: rgba(0,0,0,0.1);
+  border-radius: 18px;
+  padding: 18px 22px;
+  max-width: 300px;
+  width: 100%;
+}
+.install-box .title {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(0,0,0,0.45);
+  margin-bottom: 12px;
+  text-align: center;
+}
+.step-row {
+  display: flex; align-items: flex-start;
+  gap: 10px; margin-bottom: 10px;
+}
+.step-row:last-child { margin-bottom: 0; }
+.step-num {
+  min-width: 24px; height: 24px;
+  background: #0f0f0f;
+  color: #ffcc00;
+  border-radius: 50%;
+  font-size: 0.75rem; font-weight: 800;
   display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
 }
-.ring-wrap svg {
-  position: absolute; top: 0; left: 0;
-  transform: rotate(-90deg);
+.step-text {
+  font-size: 0.85rem;
+  color: #0f0f0f;
+  line-height: 1.5;
+  padding-top: 2px;
 }
-.ring-bg { fill: none; stroke: rgba(0,0,0,0.15); stroke-width: 5; }
-.ring-fg {
-  fill: none; stroke: #0f0f0f; stroke-width: 5;
-  stroke-linecap: round;
-  stroke-dasharray: 176;
-  stroke-dashoffset: 0;
-  transition: stroke-dashoffset 1s linear;
-}
-.countdown-num {
-  font-size: 1.4rem; font-weight: 800; color: #0f0f0f;
-  position: relative; z-index: 1;
-}
+.step-text b { font-weight: 800; }
 
-/* Pulsante manuale */
+/* Pulsante apri app */
 .btn-open {
-  margin-top: 4px;
   background: #0f0f0f;
   color: #ffcc00;
   border: none;
-  border-radius: 14px;
-  padding: 13px 32px;
-  font-size: 1rem;
+  border-radius: 16px;
+  padding: 16px 40px;
+  font-size: 1.05rem;
   font-weight: 800;
   cursor: pointer;
   letter-spacing: -0.3px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+  width: 100%;
+  max-width: 300px;
 }
-.btn-open:active { transform: scale(0.97); }
+.btn-open:active { transform: scale(0.97); opacity: 0.9; }
+
+.note {
+  font-size: 0.72rem;
+  color: rgba(0,0,0,0.4);
+  text-align: center;
+  max-width: 260px;
+  line-height: 1.5;
+}
 </style>
 </head>
 <body>
+
   <div class="icon">OS</div>
   <h1>OS OpenInSider</h1>
   <p class="sub">OpenInSider &middot; C-Level Purchases</p>
 
-  <!-- Istruzioni installazione -->
+  <div class="divider"></div>
+
+  <!-- Istruzioni passo per passo -->
   <div class="install-box">
-    <div class="step">
-      📲 <b>Installa l'app ora:</b><br>
-      Menu <b>⋮</b> in alto a destra<br>
-      → <b>"Aggiungi a schermata Home"</b><br>
-      → conferma <b>"Aggiungi"</b>
+    <div class="title">📲 Installa l'app sul telefono</div>
+    <div class="step-row">
+      <div class="step-num">1</div>
+      <div class="step-text">Tocca i <b>tre puntini ⋮</b> in alto a destra nel browser</div>
+    </div>
+    <div class="step-row">
+      <div class="step-num">2</div>
+      <div class="step-text">Seleziona <b>"Aggiungi a schermata Home"</b></div>
+    </div>
+    <div class="step-row">
+      <div class="step-num">3</div>
+      <div class="step-text">Tocca <b>"Aggiungi"</b> per confermare</div>
+    </div>
+    <div class="step-row">
+      <div class="step-num">4</div>
+      <div class="step-text">Quando sei pronto premi il pulsante qui sotto</div>
     </div>
   </div>
 
-  <!-- Countdown visivo -->
-  <div class="ring-wrap">
-    <svg viewBox="0 0 64 64" width="64" height="64">
-      <circle class="ring-bg" cx="32" cy="32" r="28"/>
-      <circle class="ring-fg" id="ring" cx="32" cy="32" r="28"/>
-    </svg>
-    <span class="countdown-num" id="num">15</span>
-  </div>
+  <!-- Pulsante manuale — nessun redirect automatico -->
+  <button class="btn-open" onclick="window.location.href='https://insider-tracker-3pv8nsbqmjeofpk2mww8kj.streamlit.app'">
+    Apri OS OpenInSider →
+  </button>
 
-  <!-- Pulsante per chi vuole aprire subito -->
-  <button class="btn-open" onclick="goNow()">Apri l'app →</button>
+  <p class="note">La pagina resta aperta finché non premi il pulsante. Nessun redirect automatico.</p>
 
-  <script>
-    var dest = 'https://insider-tracker-3pv8nsbqmjeofpk2mww8kj.streamlit.app';
-    var total = 15;
-    var left  = total;
-    var circ  = 2 * Math.PI * 28; // ~175.9
-
-    function goNow() {
-      window.location.href = dest;
-    }
-
-    var ring = document.getElementById('ring');
-    var num  = document.getElementById('num');
-
-    ring.style.strokeDasharray  = circ;
-    ring.style.strokeDashoffset = 0;
-
-    var timer = setInterval(function() {
-      left--;
-      num.textContent = left;
-      // Offset cresce da 0 a circ man mano che il tempo passa
-      ring.style.strokeDashoffset = circ * (1 - left / total);
-      if (left <= 0) {
-        clearInterval(timer);
-        goNow();
-      }
-    }, 1000);
-  </script>
 </body>
 </html>
