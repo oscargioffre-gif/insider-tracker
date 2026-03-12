@@ -329,7 +329,7 @@ def _parse_table(soup, cutoff):
 # ─── URL BUILDER (invariato) ──────────────────────────────────────────────────
 def build_url(vl,vh,days=30):
     vh_s=str(vh) if vh>0 else ""
-    return (f"http://openinsider.com/screener?s=&o=&pl=&ph=&ll=&lh=&fd={days}&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1&xs=0&xa=0&xd=0&xg=0&xf=0&xm=0&xx=0&xo=0&vl={vl}&vh={vh_s}&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&isofficer=1&iscob=1&isceo=1&ispres=1&iscoo=1&iscfo=1&isgc=1&isvp=1&isdirector=0&is10percent=0&isother=0&sortcol=0&cnt=200&Action=Submit")
+    return (f"http://openinsider.com/screener?s=&o=&pl=&ph=&ll=&lh=&fd={days}&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1&xs=0&xa=0&xd=0&xg=0&xf=0&xm=0&xx=0&xo=0&vl={vl}&vh={vh_s}&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&isofficer=1&iscob=1&isceo=1&ispres=1&iscoo=1&iscfo=1&isgc=1&isvp=1&isdirector=0&is10percent=0&isother=0&sortcol=0&cnt=500&Action=Submit")
 
 @st.cache_data(ttl=300,show_spinner=False)
 def fetch_trades(vl,vh):
@@ -529,7 +529,7 @@ def main():
         st.markdown('<div class="empty-state"><div class="ei">📅</div><p>Tocca uno o più giorni in alto<br>per vedere i risultati.</p></div>', unsafe_allow_html=True)
         return
 
-    trades = [t for t in trades if t.get("trade_date","") in selected_dates]
+    trades = [t for t in trades if t.get("filing_date","") in selected_dates]
     if not trades:
         st.markdown('<div class="empty-state"><div class="ei">📅</div><p>Nessun acquisto nei giorni selezionati.<br>Aggiungi altri giorni sopra.</p></div>', unsafe_allow_html=True)
         return
